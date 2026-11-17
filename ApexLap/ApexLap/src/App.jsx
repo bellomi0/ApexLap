@@ -13,17 +13,19 @@ import {
   Square, 
   Gauge, 
   Crosshair,
-  ChevronDown,
-  Check,
-  ChevronRight,
-  TrendingUp,
-  Clock,
-  MapPin,
-  Award,
-  Activity
+  LogIn,
+  UserPlus,
+  LogOut,
+  Mail,
+  Lock,
+  Car,
+  Activity,
+  Plus,
+  CheckCircle2,
+  Camera,
+  ShieldAlert
 } from 'lucide-react';
 
-// Icona personalizzata Marker GPS
 const customIcon = new L.Icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -34,96 +36,75 @@ const customIcon = new L.Icon({
   shadowSize: [41, 41]
 });
 
-// Componente per animare lo spostamento (flyTo) quando si cerca una località
+// Avatar predefiniti di default
+const DEFAULT_AVATARS = [
+  { id: 'helmet', name: 'Casco', url: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=150&auto=format&fit=crop&q=80' },
+  { id: 'driver', name: 'Pilota', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80' },
+  { id: 'car', name: 'Auto Sportiva', url: 'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?w=150&auto=format&fit=crop&q=80' },
+  { id: 'steering', name: 'Volante', url: 'https://images.unsplash.com/photo-1541348263662-e082662d82da?w=150&auto=format&fit=crop&q=80' }
+];
+
 function ControllerMappa({ center, zoom }) {
   const map = useMap();
   useEffect(() => {
-    if (center) {
-      map.flyTo(center, zoom, { duration: 1.5 });
-    }
+    if (center) map.flyTo(center, zoom, { duration: 1.5 });
   }, [center, zoom, map]);
   return null;
 }
-
-// Database di percorsi di prova con coordinate reali
-const ROADS_DATABASE = [
-  {
-    id: 1,
-    name: 'Serravalle - Tratto Misto Panoramico',
-    type: 'extraurbano',
-    difficulty: 'difficile',
-    lengthKm: 14.2,
-    elevationGain: '320m',
-    curvesCount: 28,
-    komTime: '4:12.80',
-    komHolder: 'Marco R. (Porsche 911)',
-    coords: [
-      [45.7144, 8.2818],
-      [45.7200, 8.2900],
-      [45.7280, 8.3050],
-      [45.7350, 8.3150]
-    ]
-  },
-  {
-    id: 2,
-    name: 'Torino - Corso Vittorio & Panoramica',
-    type: 'urbano',
-    difficulty: 'facile',
-    lengthKm: 5.8,
-    elevationGain: '45m',
-    curvesCount: 8,
-    komTime: '2:45.10',
-    komHolder: 'Luca B. (BMW M3)',
-    coords: [
-      [45.0621, 7.6601],
-      [45.0650, 7.6700],
-      [45.0700, 7.6750],
-      [45.0680, 7.6620]
-    ]
-  },
-  {
-    id: 3,
-    name: 'A4 Milano - Torino Express',
-    type: 'autostrada',
-    difficulty: 'facile',
-    lengthKm: 45.0,
-    elevationGain: '10m',
-    curvesCount: 3,
-    komTime: '18:30.00',
-    komHolder: 'Andrea M. (Golf R)',
-    coords: [
-      [45.0621, 7.6601],
-      [45.1500, 7.8500],
-      [45.2500, 8.1000],
-      [45.4654, 9.1859]
-    ]
-  }
-];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [userLocation, setUserLocation] = useState([45.0621, 7.6601]);
   const [mapCenter, setMapCenter] = useState([45.0621, 7.6601]);
   const [mapZoom, setMapZoom] = useState(13);
-  
+
+  // SESSIONE UTENTE
+  const [currentUser, setCurrentUser] = useState(() => {
+    const saved = localStorage.getItem('apexlap_current_session');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  // Modal & Form Auth
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [fullNameInput, setFullNameInput] = useState('');
+  const [usernameInput, setUsernameInput] = useState('');
+  const [avatarUrlInput, setAvatarUrlInput] = useState(DEFAULT_AVATARS[0].url);
+
+  // Gestione Garage
+  const [newCarName, setNewCarName] = useState('');
+  const [showAddCarModal, setShowAddCarModal] = useState(false);
+
+  // Telemetria GPS
   const [speed, setSpeed] = useState(0);
   const [maxSpeed, setMaxSpeed] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
-  
+
+  // Mappa
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTitle, setSearchTitle] = useState('Posizione Attuale');
   const [isSearching, setIsSearching] = useState(false);
+  const [selectedPolyline, setSelectedPolyline] = useState(null);
 
-  // Filtri a tendina
-  const [activeDropdown, setActiveDropdown] = useState(null);
-  const [filterType, setFilterType] = useState('tutti');
-  const [filterDiff, setFilterDiff] = useState('tutti');
-  const [sortByLength, setSortByLength] = useState(false);
+  // Storico Giri Utente
+  const [userLaps, setUserLaps] = useState(() => {
+    if (!currentUser) return [];
+    const saved = localStorage.getItem(`apexlap_laps_${currentUser.email}`);
+    return saved ? JSON.parse(saved) : [];
+  });
 
-  // Tratto evidenziato
-  const [selectedPolyline, setSelectedPolyline] = useState(ROADS_DATABASE[0].coords);
-  const [selectedRouteInfo, setSelectedRouteInfo] = useState(ROADS_DATABASE[0]);
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('apexlap_current_session', JSON.stringify(currentUser));
+      const saved = localStorage.getItem(`apexlap_laps_${currentUser.email}`);
+      setUserLaps(saved ? JSON.parse(saved) : []);
+    } else {
+      localStorage.removeItem('apexlap_current_session');
+      setUserLaps([]);
+    }
+  }, [currentUser]);
 
   // GPS Live
   useEffect(() => {
@@ -133,10 +114,7 @@ export default function App() {
           const { latitude, longitude, speed: gpsSpeed } = position.coords;
           const newPos = [latitude, longitude];
           setUserLocation(newPos);
-          
-          if (searchTitle === 'Posizione Attuale') {
-            setMapCenter(newPos);
-          }
+          if (searchTitle === 'Posizione Attuale') setMapCenter(newPos);
 
           if (gpsSpeed !== null && gpsSpeed !== undefined) {
             const currentKmH = Math.round(gpsSpeed * 3.6);
@@ -162,59 +140,127 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isRecording]);
 
-  // Ricerca Reale Nominatim
+  // Auth: Registrazione / Login
+  const handleAuthSubmit = (e) => {
+    e.preventDefault();
+    if (!emailInput || !passwordInput) return;
+
+    const emailKey = emailInput.toLowerCase();
+    const usersDB = JSON.parse(localStorage.getItem('apexlap_all_users') || '{}');
+
+    if (isRegisterMode) {
+      const newUser = {
+        email: emailKey,
+        fullName: fullNameInput || 'Pilota Apex',
+        username: usernameInput || 'Driver',
+        avatarUrl: avatarUrlInput,
+        garage: ['Ford Puma', 'Lancia Ypsilon'], // Auto iniziali di esempio nel garage
+        activeCar: 'Ford Puma',
+        joinedAt: new Date().toLocaleDateString('it-IT')
+      };
+      
+      usersDB[emailKey] = { ...newUser, password: passwordInput };
+      localStorage.setItem('apexlap_all_users', JSON.stringify(usersDB));
+      setCurrentUser(newUser);
+    } else {
+      const found = usersDB[emailKey];
+      if (found && found.password === passwordInput) {
+        setCurrentUser(found);
+      } else {
+        alert('Credenziali errate o utente non trovato!');
+      }
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setEmailInput('');
+    setPasswordInput('');
+  };
+
+  // Aggiungi nuova auto al Garage
+  const handleAddCar = (e) => {
+    e.preventDefault();
+    if (!newCarName.trim()) return;
+
+    const updatedGarage = [...(currentUser.garage || []), newCarName.trim()];
+    const updatedUser = { 
+      ...currentUser, 
+      garage: updatedGarage,
+      activeCar: currentUser.activeCar || newCarName.trim()
+    };
+
+    setCurrentUser(updatedUser);
+    
+    // Aggiorna anche DB locale
+    const usersDB = JSON.parse(localStorage.getItem('apexlap_all_users') || '{}');
+    if (usersDB[currentUser.email]) {
+      usersDB[currentUser.email] = { ...usersDB[currentUser.email], ...updatedUser };
+      localStorage.setItem('apexlap_all_users', JSON.stringify(usersDB));
+    }
+
+    setNewCarName('');
+    setShowAddCarModal(false);
+  };
+
+  // Seleziona auto attiva dal Garage
+  const handleSelectActiveCar = (carName) => {
+    const updatedUser = { ...currentUser, activeCar: carName };
+    setCurrentUser(updatedUser);
+
+    const usersDB = JSON.parse(localStorage.getItem('apexlap_all_users') || '{}');
+    if (usersDB[currentUser.email]) {
+      usersDB[currentUser.email] = { ...usersDB[currentUser.email], activeCar: carName };
+      localStorage.setItem('apexlap_all_users', JSON.stringify(usersDB));
+    }
+  };
+
+  // Salvataggio Giro
+  const handleStopRecording = () => {
+    setIsRecording(false);
+    if (elapsedTime > 3 && currentUser) {
+      const newLap = {
+        id: Date.now(),
+        userEmail: currentUser.email,
+        userName: currentUser.username || currentUser.fullName,
+        userCar: currentUser.activeCar || 'Auto Sconosciuta',
+        date: new Date().toLocaleDateString('it-IT'),
+        timeFormatted: formatTime(elapsedTime),
+        durationSeconds: elapsedTime,
+        maxSpeed: maxSpeed,
+        location: searchTitle
+      };
+      
+      const updated = [newLap, ...userLaps];
+      setUserLaps(updated);
+      localStorage.setItem(`apexlap_laps_${currentUser.email}`, JSON.stringify(updated));
+      alert(`Giro salvato per ${currentUser.username} con ${currentUser.activeCar}! Tempo: ${formatTime(elapsedTime)}`);
+    }
+    setElapsedTime(0);
+  };
+
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
-
     setIsSearching(true);
-    setActiveDropdown(null);
     try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}`
-      );
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}`);
       const data = await response.json();
-
       if (data && data.length > 0) {
         const lat = parseFloat(data[0].lat);
         const lon = parseFloat(data[0].lon);
         const newCoords = [lat, lon];
-        
         setMapCenter(newCoords);
         setMapZoom(14);
         const mainName = data[0].display_name.split(',')[0];
         setSearchTitle(mainName);
-
-        const generatedPath = [
-          newCoords,
-          [lat + 0.008, lon + 0.012],
-          [lat + 0.015, lon + 0.005],
-          [lat + 0.020, lon - 0.010]
-        ];
-        setSelectedPolyline(generatedPath);
-        setSelectedRouteInfo({
-          name: `${mainName} - Tratto Panoramico`,
-          type: filterType !== 'tutti' ? filterType : 'extraurbano',
-          difficulty: filterDiff !== 'tutti' ? filterDiff : 'media',
-          lengthKm: 12.4,
-          elevationGain: '180m',
-          curvesCount: 16,
-          komTime: '4:12.80',
-          komHolder: 'Marco R. (Porsche 911)'
-        });
-
-      } else {
-        alert('Località non trovata. Prova con un altro nome (es. Serravalle Sesia, Torino, Milano)');
+        setSelectedPolyline([newCoords, [lat + 0.008, lon + 0.012]]);
       }
     } catch (err) {
-      console.error('Errore ricerca:', err);
+      console.error(err);
     } finally {
       setIsSearching(false);
     }
-  };
-
-  const toggleDropdown = (name) => {
-    setActiveDropdown(activeDropdown === name ? null : name);
   };
 
   const formatTime = (seconds) => {
@@ -222,6 +268,123 @@ export default function App() {
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
+
+  // REGISTRAZIONE / LOGIN FORM
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex items-center justify-center p-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm space-y-5 shadow-2xl relative">
+          
+          <div className="text-center space-y-1">
+            <div className="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-red-600/40 mb-2">
+              <Zap className="w-7 h-7 text-white fill-current" />
+            </div>
+            <h1 className="text-xl font-black italic bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+              APEXLAP ACCOUNT
+            </h1>
+            <p className="text-xs text-slate-400">
+              {isRegisterMode ? 'Crea il tuo profilo ed imposta le tue auto' : 'Accedi al tuo account personalizzato'}
+            </p>
+          </div>
+
+          <form onSubmit={handleAuthSubmit} className="space-y-3">
+            {isRegisterMode && (
+              <>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Nome e Cognome</label>
+                  <input
+                    type="text"
+                    placeholder="Es. Andrea Margarini"
+                    value={fullNameInput}
+                    onChange={(e) => setFullNameInput(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Username / Soprannome</label>
+                  <input
+                    type="text"
+                    placeholder="Es. AndreaApex"
+                    value={usernameInput}
+                    onChange={(e) => setUsernameInput(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
+                    required
+                  />
+                </div>
+
+                {/* SCELTA AVATAR / FOTO PROFILO */}
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Scegli Avatar o Inserisci URL Foto</label>
+                  <div className="grid grid-cols-4 gap-2 mb-2">
+                    {DEFAULT_AVATARS.map((av) => (
+                      <button
+                        key={av.id}
+                        type="button"
+                        onClick={() => setAvatarUrlInput(av.url)}
+                        className={`relative rounded-xl overflow-hidden border-2 h-12 transition-all ${avatarUrlInput === av.url ? 'border-red-500 scale-105 shadow-md' : 'border-slate-800 opacity-60'}`}
+                      >
+                        <img src={av.url} alt={av.name} className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="url"
+                    placeholder="Oppure incolla URL foto personalizzata..."
+                    value={avatarUrlInput}
+                    onChange={(e) => setAvatarUrlInput(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-[11px] text-white focus:outline-none focus:border-red-500"
+                  />
+                </div>
+              </>
+            )}
+
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Email</label>
+              <input
+                type="email"
+                placeholder="nome@email.com"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Password</label>
+              <input
+                type="password"
+                placeholder="••••••••"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 bg-red-600 hover:bg-red-500 rounded-xl font-bold text-white text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 uppercase tracking-wider mt-2"
+            >
+              {isRegisterMode ? 'CREA ACCOUNT' : 'ACCEDI'}
+            </button>
+          </form>
+
+          <div className="text-center pt-2 border-t border-slate-800">
+            <button
+              onClick={() => setIsRegisterMode(!isRegisterMode)}
+              className="text-xs text-slate-400 hover:text-red-400 underline font-semibold"
+            >
+              {isRegisterMode ? 'Hai già un account? Accedi' : 'Non hai un account? Registrati ora'}
+            </button>
+          </div>
+
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-24 select-none">
@@ -232,412 +395,312 @@ export default function App() {
           <div className="w-8 h-8 bg-red-600 rounded-xl flex items-center justify-center shadow-lg shadow-red-600/30">
             <Zap className="w-4 h-4 text-white fill-current" />
           </div>
-          <div>
-            <h1 className="text-lg font-black tracking-wider bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent italic">
-              APEXLAP
-            </h1>
-            <p className="text-[9px] text-red-500 font-black tracking-widest uppercase -mt-1">
-              PURE TRACK TELEMETRY
-            </p>
-          </div>
+          <h1 className="text-lg font-black tracking-wider bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent italic">
+            APEXLAP
+          </h1>
         </div>
-        <button className="w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center border border-slate-700 text-slate-300">
-          <User className="w-4 h-4" />
-        </button>
+
+        {/* PROFILO UTENTE IN ALTO */}
+        <div className="flex items-center gap-2.5">
+          <img 
+            src={currentUser.avatarUrl || DEFAULT_AVATARS[0].url} 
+            alt="Avatar" 
+            className="w-8 h-8 rounded-full object-cover border border-red-500/50 shadow-md"
+          />
+          <div className="text-right">
+            <span className="text-xs font-bold text-white block -mb-0.5">{currentUser.username || currentUser.fullName}</span>
+            <span className="text-[9px] text-red-400 font-bold uppercase">{currentUser.activeCar || 'Nessuna Auto'}</span>
+          </div>
+          <button 
+            onClick={handleLogout}
+            title="Disconnetti"
+            className="w-7 h-7 bg-slate-800 hover:bg-red-950/50 text-slate-400 hover:text-red-400 rounded-full flex items-center justify-center border border-slate-700 transition-colors ml-1"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </header>
 
-      {/* CONTENUTO PRINCIPALE IN BASE ALLA SCHEDA */}
+      {/* CONTENUTO PRINCIPALE */}
       <main className="max-w-md mx-auto">
 
-        {/* 1. HOME DASHBOARD COMPLETA */}
+        {/* 1. HOME DASHBOARD CON GARAGE PILOTA */}
         {activeTab === 'home' && (
           <div className="p-4 space-y-5">
             
-            {/* HERO BANNER PILOTA */}
-            <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-red-950/50 p-5 rounded-3xl border border-slate-800/80 shadow-2xl relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-red-600/10 rounded-full blur-3xl pointer-events-none"></div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                <span className="text-xs font-bold text-red-500 tracking-wider uppercase">Dashboard Pilota</span>
-              </div>
-              <h2 className="text-xl font-bold text-white">Pronto per il prossimo settore?</h2>
-              <p className="text-xs text-slate-400 mt-1">Scegli un percorso sulla mappa o avvia subito la telemetria GPS dal vivo.</p>
-              
-              <button 
-                onClick={() => setActiveTab('live')} 
-                className="mt-4 w-full py-3.5 bg-red-600 hover:bg-red-500 active:scale-95 transition-all rounded-2xl font-bold text-white text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 tracking-wider uppercase"
-              >
-                <Play className="w-4 h-4 fill-current" /> AVVIA SESSIONE LIVE
-              </button>
-            </div>
-
-            {/* STATISTICHE RAPIDE PILOTA */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-2xl text-center shadow-lg">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Giri Totali</span>
-                <span className="text-xl font-black text-white font-mono">14</span>
-              </div>
-              <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-2xl text-center shadow-lg">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Ore Guida</span>
-                <span className="text-xl font-black text-white font-mono">3.4h</span>
-              </div>
-              <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-2xl text-center shadow-lg">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">KOM Presi</span>
-                <span className="text-xl font-black text-amber-400 font-mono">2</span>
+            {/* CARD PROFILO UTENTE */}
+            <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-red-950/50 p-5 rounded-3xl border border-slate-800 shadow-2xl flex items-center gap-4">
+              <img 
+                src={currentUser.avatarUrl || DEFAULT_AVATARS[0].url} 
+                alt="Avatar" 
+                className="w-16 h-16 rounded-2xl object-cover border-2 border-red-500 shadow-lg"
+              />
+              <div className="space-y-1">
+                <span className="text-[10px] font-extrabold text-red-500 uppercase tracking-wider">Pilota Verificato</span>
+                <h2 className="text-lg font-bold text-white leading-tight">{currentUser.fullName}</h2>
+                <p className="text-xs text-slate-400">@{currentUser.username}</p>
+                <div className="inline-block px-2 py-0.5 bg-slate-800 border border-slate-700 rounded-full text-[10px] text-amber-400 font-bold">
+                  Auto Attiva: {currentUser.activeCar || 'Nessuna'}
+                </div>
               </div>
             </div>
 
-            {/* TRATTI CONSIGLIATI */}
-            <div className="space-y-3">
-              <div className="flex justify-between items-center px-1">
-                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tratti Consigliati vicini a te</h3>
-                <button onClick={() => setActiveTab('map')} className="text-xs text-red-400 font-semibold flex items-center hover:underline">
-                  vedi mappa <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+            {/* SEZIONE GARAGE PILOTA (SELEZIONA L'AUTO DEL GIORNO) */}
+            <div className="bg-slate-900 p-4 rounded-3xl border border-slate-800 space-y-3 shadow-xl">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <Car className="w-4 h-4 text-red-500" /> Il Tuo Garage
+                  </h3>
+                  <p className="text-[10px] text-slate-400">Scegli l'auto che guidi oggi per registrare i tuoi tempi.</p>
+                </div>
+                <button 
+                  onClick={() => setShowAddCarModal(true)}
+                  className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-md"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Aggiungi Auto
                 </button>
               </div>
 
-              {ROADS_DATABASE.map((road) => (
-                <div 
-                  key={road.id}
-                  onClick={() => {
-                    setSelectedRouteInfo(road);
-                    setSelectedPolyline(road.coords);
-                    setMapCenter(road.coords[0]);
-                    setActiveTab('map');
-                  }}
-                  className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex items-center justify-between cursor-pointer hover:border-slate-700 transition-all shadow-md active:scale-98"
-                >
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-red-500 uppercase tracking-wider">
-                      {road.type} • {road.difficulty}
-                    </span>
-                    <h4 className="text-sm font-bold text-white">{road.name}</h4>
-                    <p className="text-xs text-slate-400">
-                      Lunghezza: {road.lengthKm} km • Dislivello: {road.elevationGain}
-                    </p>
-                  </div>
-                  <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-slate-300 border border-slate-700">
-                    <MapIcon className="w-4 h-4 text-red-500" />
-                  </div>
+              {/* LISTA AUTO NEL GARAGE */}
+              <div className="space-y-2 pt-1">
+                {(currentUser.garage || []).map((car, idx) => {
+                  const isActive = currentUser.activeCar === car;
+                  return (
+                    <div 
+                      key={idx}
+                      onClick={() => handleSelectActiveCar(car)}
+                      className={`p-3 rounded-2xl border flex items-center justify-between cursor-pointer transition-all ${
+                        isActive 
+                          ? 'bg-red-950/30 border-red-500/80 text-white shadow-md' 
+                          : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Car className={`w-4 h-4 ${isActive ? 'text-red-500' : 'text-slate-500'}`} />
+                        <span className="text-xs font-bold">{car}</span>
+                      </div>
+                      {isActive && (
+                        <span className="text-[10px] font-extrabold text-red-400 flex items-center gap-1 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-500/20">
+                          <CheckCircle2 className="w-3 h-3" /> In Uso Oggi
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* AVVIO QUICK SESSION */}
+            <button 
+              onClick={() => setActiveTab('live')} 
+              className="w-full py-3.5 bg-red-600 hover:bg-red-500 rounded-2xl font-bold text-white text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 uppercase tracking-wider"
+            >
+              <Play className="w-4 h-4 fill-current" /> AVVIA SESSIONE LIVE ({currentUser.activeCar})
+            </button>
+
+            {/* STORICO PERSONALE */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Tempi Registrati da {currentUser.username}</h3>
+              {userLaps.length === 0 ? (
+                <div className="bg-slate-900 p-5 rounded-3xl border border-slate-800 text-center">
+                  <p className="text-xs text-slate-400">Nessun tempo nel database per {currentUser.username}. Avvia la telemetria GPS!</p>
                 </div>
-              ))}
+              ) : (
+                <div className="space-y-2">
+                  {userLaps.map((lap) => (
+                    <div key={lap.id} className="bg-slate-900 p-3.5 rounded-2xl border border-slate-800 flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-white">{lap.location}</span>
+                        <span className="text-[10px] text-slate-400 block">{lap.userCar} • {lap.date} • Max {lap.maxSpeed} km/h</span>
+                      </div>
+                      <span className="font-mono text-sm font-bold text-amber-400">{lap.timeFormatted}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
           </div>
         )}
 
-        {/* 2. MAPPA INTERATTIVA STRAVA-STYLE */}
+        {/* MODAL NUOVA AUTO IN GARAGE */}
+        {showAddCarModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[2000] flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 w-full max-w-sm space-y-4 shadow-2xl">
+              <h3 className="text-base font-bold text-white">Aggiungi Veicolo al Garage</h3>
+              <form onSubmit={handleAddCar} className="space-y-3">
+                <input 
+                  type="text"
+                  placeholder="Es. Lancia Ypsilon, Ford Puma..."
+                  value={newCarName}
+                  onChange={(e) => setNewCarName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
+                  required
+                />
+                <div className="flex gap-2">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowAddCarModal(false)}
+                    className="w-1/2 py-2.5 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold"
+                  >
+                    Annulla
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="w-1/2 py-2.5 bg-red-600 text-white rounded-xl text-xs font-bold shadow-md"
+                  >
+                    Aggiungi
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MAPPA */}
         {activeTab === 'map' && (
           <div className="relative h-[calc(100vh-125px)] w-full overflow-hidden">
-            
-            {/* MAPPA LEAFLET */}
-            <MapContainer 
-              center={mapCenter} 
-              zoom={mapZoom} 
-              scrollWheelZoom={true} 
-              className="h-full w-full z-0"
-              zoomControl={false}
-            >
+            <MapContainer center={mapCenter} zoom={mapZoom} scrollWheelZoom={true} className="h-full w-full z-0" zoomControl={false}>
               <ControllerMappa center={mapCenter} zoom={mapZoom} />
-              <TileLayer
-                attribution='&copy; OpenStreetMap'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                className="map-dark-filter"
-              />
-              
-              {selectedPolyline && (
-                <Polyline 
-                  positions={selectedPolyline} 
-                  color="#ef4444" 
-                  weight={6} 
-                  opacity={0.9} 
-                />
-              )}
-
+              <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" className="map-dark-filter" />
+              {selectedPolyline && <Polyline positions={selectedPolyline} color="#ef4444" weight={6} opacity={0.9} />}
               <Marker position={userLocation} icon={customIcon}>
                 <Popup>La tua posizione GPS</Popup>
               </Marker>
             </MapContainer>
 
-            {/* BARRA SUPERIORE & TENDINE FILTRI */}
-            <div className="absolute top-3 left-3 right-3 z-[1000] space-y-2">
-              
+            <div className="absolute top-3 left-3 right-3 z-[1000]">
               <form onSubmit={handleSearch} className="relative shadow-2xl">
                 <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Cerca località (es. Serravalle Sesia, Torino)..."
-                  className="w-full bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-2xl pl-10 pr-20 py-3 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-red-500 shadow-lg"
+                  placeholder="Cerca città sulla mappa..."
+                  className="w-full bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-2xl pl-10 pr-20 py-3 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-red-500"
                 />
-                <button
-                  type="submit"
-                  disabled={isSearching}
-                  className="absolute right-1.5 top-1.5 bottom-1.5 px-3 bg-red-600 hover:bg-red-500 rounded-xl text-[11px] font-bold text-white transition-all"
-                >
+                <button type="submit" disabled={isSearching} className="absolute right-1.5 top-1.5 bottom-1.5 px-3 bg-red-600 hover:bg-red-500 rounded-xl text-[11px] font-bold text-white">
                   {isSearching ? '...' : 'Cerca'}
                 </button>
               </form>
-
-              <div className="relative">
-                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-                  
-                  <button 
-                    onClick={() => toggleDropdown('percorsi')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap backdrop-blur-md shadow-md transition-all ${filterType !== 'tutti' ? 'bg-red-600 text-white' : 'bg-slate-900/90 border border-slate-700 text-slate-200'}`}
-                  >
-                    <Flame className="w-3.5 h-3.5 fill-current" /> 
-                    {filterType === 'tutti' ? 'Percorsi' : filterType.toUpperCase()}
-                    <ChevronDown className="w-3 h-3 ml-0.5" />
-                  </button>
-
-                  <button 
-                    onClick={() => {
-                      setSortByLength(!sortByLength);
-                      setActiveDropdown(null);
-                    }}
-                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap backdrop-blur-md shadow-md transition-all ${sortByLength ? 'bg-red-600 text-white font-bold' : 'bg-slate-900/90 border border-slate-700 text-slate-200'}`}
-                  >
-                    Lunghezza {sortByLength ? '(Max ➔ Min)' : ''}
-                  </button>
-
-                  <button 
-                    onClick={() => toggleDropdown('difficolta')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap backdrop-blur-md shadow-md transition-all ${filterDiff !== 'tutti' ? 'bg-red-600 text-white' : 'bg-slate-900/90 border border-slate-700 text-slate-200'}`}
-                  >
-                    {filterDiff === 'tutti' ? 'Difficoltà' : filterDiff.toUpperCase()}
-                    <ChevronDown className="w-3 h-3 ml-0.5" />
-                  </button>
-
-                </div>
-
-                {/* DROPDOWN PERCORSI */}
-                {activeDropdown === 'percorsi' && (
-                  <div className="absolute left-0 top-10 bg-slate-900/95 border border-slate-700 rounded-2xl p-2 w-48 shadow-2xl backdrop-blur-xl z-[1100] space-y-1">
-                    <span className="text-[10px] font-extrabold text-slate-400 px-3 py-1 block uppercase">Tipologia Strada</span>
-                    {[
-                      { id: 'tutti', label: 'Tutti i percorsi' },
-                      { id: 'urbano', label: 'Urbano (Città)' },
-                      { id: 'extraurbano', label: 'Extraurbano (Misto)' },
-                      { id: 'autostrada', label: 'Autostrada (Veloce)' }
-                    ].map((opt) => (
-                      <button
-                        key={opt.id}
-                        onClick={() => {
-                          setFilterType(opt.id);
-                          setActiveDropdown(null);
-                          const found = ROADS_DATABASE.find(r => opt.id === 'tutti' || r.type === opt.id);
-                          if (found) {
-                            setSelectedPolyline(found.coords);
-                            setSelectedRouteInfo(found);
-                            setMapCenter(found.coords[0]);
-                          }
-                        }}
-                        className="w-full flex items-center justify-between px-3 py-2 text-xs rounded-xl hover:bg-slate-800 text-slate-200 text-left"
-                      >
-                        {opt.label}
-                        {filterType === opt.id && <Check className="w-3.5 h-3.5 text-red-500" />}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* DROPDOWN DIFFICOLTÀ */}
-                {activeDropdown === 'difficolta' && (
-                  <div className="absolute left-32 top-10 bg-slate-900/95 border border-slate-700 rounded-2xl p-2 w-52 shadow-2xl backdrop-blur-xl z-[1100] space-y-1">
-                    <span className="text-[10px] font-extrabold text-slate-400 px-3 py-1 block uppercase">Grado Curvatura</span>
-                    {[
-                      { id: 'tutti', label: 'Tutte le difficoltà' },
-                      { id: 'facile', label: 'Facile (Poche curve)' },
-                      { id: 'media', label: 'Media (Misto Guidato)' },
-                      { id: 'difficile', label: 'Difficile (Molte curve)' }
-                    ].map((opt) => (
-                      <button
-                        key={opt.id}
-                        onClick={() => {
-                          setFilterDiff(opt.id);
-                          setActiveDropdown(null);
-                          const found = ROADS_DATABASE.find(r => opt.id === 'tutti' || r.difficulty === opt.id);
-                          if (found) {
-                            setSelectedPolyline(found.coords);
-                            setSelectedRouteInfo(found);
-                            setMapCenter(found.coords[0]);
-                          }
-                        }}
-                        className="w-full flex items-center justify-between px-3 py-2 text-xs rounded-xl hover:bg-slate-800 text-slate-200 text-left"
-                      >
-                        {opt.label}
-                        {filterDiff === opt.id && <Check className="w-3.5 h-3.5 text-red-500" />}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-              </div>
             </div>
 
-            {/* MIRINO RE-CENTER */}
             <button 
-              onClick={() => {
-                setMapCenter(userLocation);
-                setMapZoom(14);
-                setSearchTitle('Posizione Attuale');
-              }}
-              className="absolute right-4 top-36 z-[1000] w-10 h-10 bg-slate-900/90 border border-slate-700 rounded-full flex items-center justify-center shadow-xl text-slate-200 active:scale-95 backdrop-blur-md"
+              onClick={() => { setMapCenter(userLocation); setMapZoom(14); setSearchTitle('Posizione Attuale'); }}
+              className="absolute right-4 top-20 z-[1000] w-10 h-10 bg-slate-900/90 border border-slate-700 rounded-full flex items-center justify-center shadow-xl text-slate-200"
             >
               <Crosshair className="w-5 h-5 text-red-500" />
             </button>
-
-            {/* CARD SCHEDA PERCORSO CORRETTA E LEGGERA */}
-            <div className="absolute bottom-4 left-3 right-3 z-[1000]">
-              <div className="bg-slate-900/95 backdrop-blur-xl p-4 rounded-3xl border border-slate-800 shadow-2xl space-y-3">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <span className="text-[10px] font-extrabold text-red-500 uppercase tracking-wider">
-                      {selectedRouteInfo.type ? selectedRouteInfo.type.toUpperCase() : 'EXTRAURBANO'} • DIFFICOLTÀ: {selectedRouteInfo.difficulty ? selectedRouteInfo.difficulty.toUpperCase() : 'MEDIA'}
-                    </span>
-                    <h3 className="text-base font-bold text-white">{selectedRouteInfo.name || searchTitle}</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {selectedRouteInfo.lengthKm} km • Dislivello: {selectedRouteInfo.elevationGain || '180m'} • {selectedRouteInfo.curvesCount || 16} Curve
-                    </p>
-                  </div>
-                  <span className="bg-slate-800 text-amber-400 font-mono text-xs px-2.5 py-1 rounded-xl border border-amber-400/20 font-bold">
-                    KOM: {selectedRouteInfo.komTime || '4:12.80'}
-                  </span>
-                </div>
-
-                <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                    <span className="text-[11px] font-bold text-slate-300">TRACCIATO ATTIVO</span>
-                  </div>
-                  <button 
-                    onClick={() => setActiveTab('live')} 
-                    className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-xl text-xs font-bold text-white shadow-lg shadow-red-600/30 flex items-center gap-1.5 active:scale-95"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" /> SELEZIONA & GUIDA
-                  </button>
-                </div>
-              </div>
-            </div>
-
           </div>
         )}
 
-        {/* 3. TELEMETRIA LIVE GPS RIPRISTINATA */}
+        {/* GPS LIVE */}
         {activeTab === 'live' && (
           <div className="p-4 space-y-6 text-center py-6">
             <div className="inline-flex items-center gap-2 bg-slate-900 border border-slate-800 px-4 py-1.5 rounded-full">
               <div className={`w-2.5 h-2.5 rounded-full ${isRecording ? 'bg-red-500 animate-ping' : 'bg-slate-500'}`}></div>
               <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">
-                {isRecording ? 'Sessione In Corso' : 'Pronto al Via'}
+                {isRecording ? `${currentUser.username} @ ${currentUser.activeCar}` : 'Pronto al Via'}
               </span>
             </div>
 
-            {/* TACHIMETRO LUMINOSO */}
             <div className="relative w-60 h-60 mx-auto bg-slate-900/90 rounded-full border-4 border-slate-800 flex flex-col items-center justify-center shadow-2xl">
               <Gauge className="w-7 h-7 text-red-500 mb-1" />
               <span className="text-7xl font-black text-white font-mono tracking-tighter">{speed}</span>
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">KM/H REAL-TIME</span>
             </div>
 
-            {/* RILEVAZIONI SESSIONE */}
             <div className="bg-slate-900 p-4 rounded-3xl border border-slate-800 max-w-sm mx-auto grid grid-cols-2 gap-4">
               <div className="border-r border-slate-800 pr-2">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Tempo Sessione</span>
+                <span className="text-[10px] font-bold text-slate-400 block uppercase">Tempo</span>
                 <span className="text-2xl font-black text-white font-mono">{formatTime(elapsedTime)}</span>
               </div>
               <div className="pl-2">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Velocità Max</span>
-                <span className="text-2xl font-black text-amber-400 font-mono">{maxSpeed} km/h</span>
+                <span className="text-[10px] font-bold text-slate-400 block uppercase">Auto in Uso</span>
+                <span className="text-xs font-bold text-amber-400 truncate block mt-2">{currentUser.activeCar}</span>
               </div>
             </div>
 
-            {/* CONTROLLO REGISTRAZIONE */}
-            <div className="pt-2">
+            <div>
               {!isRecording ? (
                 <button
                   onClick={() => setIsRecording(true)}
-                  className="w-full py-4 bg-red-600 hover:bg-red-500 rounded-2xl font-black text-white text-base tracking-wider flex items-center justify-center gap-2 shadow-xl shadow-red-600/30 active:scale-95 transition-all"
+                  className="w-full py-4 bg-red-600 hover:bg-red-500 rounded-2xl font-black text-white text-base tracking-wider flex items-center justify-center gap-2 shadow-xl shadow-red-600/30"
                 >
                   <Play className="w-5 h-5 fill-current" /> AVVIA TRACCIAMENTO
                 </button>
               ) : (
                 <button
-                  onClick={() => setIsRecording(false)}
-                  className="w-full py-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-2xl font-black text-red-500 text-base tracking-wider flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all"
+                  onClick={handleStopRecording}
+                  className="w-full py-4 bg-slate-800 border border-slate-700 rounded-2xl font-black text-red-500 text-base tracking-wider flex items-center justify-center gap-2 shadow-xl"
                 >
-                  <Square className="w-5 h-5 fill-current" /> FERMA SESSIONE
+                  <Square className="w-5 h-5 fill-current" /> SALVA & FERMA SESSIONE
                 </button>
               )}
             </div>
           </div>
         )}
 
-        {/* 4. CLASSIFICA LEADERBOARD RIPRISTINATA */}
+        {/* CLASSIFICA UTENTE */}
         {activeTab === 'leaderboard' && (
           <div className="p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-amber-400" /> Classifica Generale
-              </h2>
-              <span className="text-xs text-slate-400">Settore: Borgosesia Misto</span>
-            </div>
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Trophy className="w-5 h-5 text-amber-400" /> Tempi di {currentUser.username}
+            </h2>
 
-            <div className="bg-slate-900 rounded-3xl border border-slate-800 divide-y divide-slate-800 shadow-xl overflow-hidden">
-              {[
-                { rank: 1, name: 'Marco R.', car: 'Porsche 911 GT3', time: '4:12.80', kom: true },
-                { rank: 2, name: 'Luca B.', car: 'BMW M3 Competition', time: '4:15.20', kom: false },
-                { rank: 3, name: 'Andrea M.', car: 'Golf 8 R', time: '4:18.90', kom: false },
-                { rank: 4, name: 'Daniele P.', car: 'Audi RS3', time: '4:22.40', kom: false },
-                { rank: 5, name: 'Matteo G.', car: 'GR Yaris', time: '4:25.10', kom: false },
-              ].map((driver) => (
-                <div key={driver.rank} className="p-4 flex items-center justify-between hover:bg-slate-800/50 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
-                      driver.rank === 1 ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/20' : 
-                      driver.rank === 2 ? 'bg-slate-300 text-slate-950' : 
-                      driver.rank === 3 ? 'bg-amber-700 text-white' : 'bg-slate-800 text-slate-400'
-                    }`}>
-                      {driver.rank}
-                    </span>
-                    <div>
-                      <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
-                        {driver.name} {driver.kom && <Award className="w-4 h-4 text-amber-400 fill-current" />}
-                      </h4>
-                      <p className="text-xs text-slate-400">{driver.car}</p>
+            {userLaps.length === 0 ? (
+              <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 text-center">
+                <p className="text-xs text-slate-400">Nessun tempo registrato. Avvia una sessione LIVE!</p>
+              </div>
+            ) : (
+              <div className="bg-slate-900 rounded-3xl border border-slate-800 divide-y divide-slate-800 shadow-xl overflow-hidden">
+                {[...userLaps]
+                  .sort((a, b) => a.durationSeconds - b.durationSeconds)
+                  .map((lap, idx) => (
+                    <div key={lap.id} className="p-4 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${idx === 0 ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
+                          #{idx + 1}
+                        </span>
+                        <div>
+                          <h4 className="text-sm font-bold text-white">{currentUser.username}</h4>
+                          <p className="text-xs text-slate-400">{lap.userCar} • {lap.date}</p>
+                        </div>
+                      </div>
+                      <span className="font-mono text-sm font-bold text-amber-400">{lap.timeFormatted}</span>
                     </div>
-                  </div>
-                  <span className="font-mono text-sm font-bold text-slate-200">{driver.time}</span>
-                </div>
-              ))}
-            </div>
+                  ))}
+              </div>
+            )}
           </div>
         )}
 
-        {/* 5. FEED ATTIVITÀ COMMUNITY RIPRISTINATO */}
+        {/* FEED */}
         {activeTab === 'feed' && (
           <div className="p-4 space-y-4">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <Activity className="w-5 h-5 text-red-500" /> Feed Attività Piloti
+              <Activity className="w-5 h-5 text-red-500" /> Registro Attività di {currentUser.username}
             </h2>
 
-            <div className="space-y-3">
-              {[
-                { user: 'Marco R.', action: 'ha stabilito un nuovo record KOM!', track: 'Serravalle Misto', time: '2 ore fa' },
-                { user: 'Luca B.', action: 'ha completato una sessione live.', track: 'Torino Panoramica', time: '5 ore fa' }
-              ].map((item, idx) => (
-                <div key={idx} className="bg-slate-900 p-4 rounded-3xl border border-slate-800 space-y-2">
-                  <div className="flex justify-between items-start">
-                    <span className="text-xs font-bold text-white">{item.user}</span>
-                    <span className="text-[10px] text-slate-500">{item.time}</span>
+            {userLaps.length === 0 ? (
+              <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 text-center">
+                <p className="text-xs text-slate-400">Nessuna attività registrata per il tuo account.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {userLaps.map((lap) => (
+                  <div key={lap.id} className="bg-slate-900 p-4 rounded-3xl border border-slate-800 space-y-2">
+                    <div className="flex justify-between items-start">
+                      <span className="text-xs font-bold text-white">{currentUser.username} ({lap.userCar})</span>
+                      <span className="text-[10px] text-slate-500">{lap.date}</span>
+                    </div>
+                    <p className="text-xs text-slate-300">Ha completato un tracciamento GPS a {lap.location}.</p>
+                    <span className="text-[10px] text-red-400 font-semibold block">Tempo: {lap.timeFormatted} • Max Speed: {lap.maxSpeed} km/h</span>
                   </div>
-                  <p className="text-xs text-slate-300">{item.action}</p>
-                  <span className="text-[10px] text-red-400 font-semibold block">{item.track}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
