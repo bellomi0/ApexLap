@@ -9,3 +9,8 @@ html, body, #root {
   padding: 0;
   overflow-x: hidden;
 }
+
+/* Filtro CSS per trasformare OpenStreetMap in stile Dark Racing */
+.map-dark-filter {
+  filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3);
+}
