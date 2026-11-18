@@ -22,7 +22,11 @@ import {
   ChevronRight,
   X,
   Upload,
-  Image as ImageIcon
+  Trash2,
+  UserPlus,
+  Users,
+  Award,
+  Lock
 } from 'lucide-react';
 
 const customIcon = new L.Icon({
@@ -35,7 +39,6 @@ const customIcon = new L.Icon({
   shadowSize: [41, 41]
 });
 
-// Avatar predefiniti: Solo Casco e Auto (oltre all'opzione Foto Bianca)
 const PRESET_AVATARS = [
   { id: 'helmet', name: 'Casco', url: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=150&auto=format&fit=crop&q=80' },
   { id: 'car', name: 'Auto', url: 'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?w=150&auto=format&fit=crop&q=80' }
@@ -55,27 +58,33 @@ export default function App() {
   const [mapCenter, setMapCenter] = useState([45.0621, 7.6601]);
   const [mapZoom, setMapZoom] = useState(13);
 
-  // SESSIONE UTENTE
+  // SESSIONE UTENTE (Può essere null se non ancora registrato)
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem('apexlap_current_session');
     return saved ? JSON.parse(saved) : null;
   });
 
-  // Modal Profile & Auth
+  // Modal Auth & Profilo
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [isRegisterMode, setIsRegisterMode] = useState(true);
+  const [authNotice, setAuthNotice] = useState('');
+
+  // Form Inputs Auth
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [fullNameInput, setFullNameInput] = useState('');
   const [usernameInput, setUsernameInput] = useState('');
-  const [avatarUrlInput, setAvatarUrlInput] = useState(''); // Vuoto di default = Foto bianca
+  const [avatarUrlInput, setAvatarUrlInput] = useState('');
 
-  // Garage Modal
+  // Garage
   const [newCarName, setNewCarName] = useState('');
   const [showAddCarModal, setShowAddCarModal] = useState(false);
 
-  // Selettore Statistiche Home
-  const [statsTimeframe, setStatsTimeframe] = useState('settimanale');
+  // Feed Tab (personale vs gruppi/tornei)
+  const [feedSubTab, setFeedSubTab] = useState('personale');
+  const [searchFriendQuery, setSearchFriendQuery] = useState('');
+  const [friendsList, setFriendsList] = useState([]);
 
   // Telemetria GPS Live
   const [speed, setSpeed] = useState(0);
@@ -83,7 +92,8 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
 
-  // Mappa
+  // Statistiche & Mappa
+  const [statsTimeframe, setStatsTimeframe] = useState('settimanale');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTitle, setSearchTitle] = useState('Posizione Attuale');
   const [isSearching, setIsSearching] = useState(false);
@@ -99,11 +109,15 @@ export default function App() {
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem('apexlap_current_session', JSON.stringify(currentUser));
-      const saved = localStorage.getItem(`apexlap_laps_${currentUser.email}`);
-      setUserLaps(saved ? JSON.parse(saved) : []);
+      const savedLaps = localStorage.getItem(`apexlap_laps_${currentUser.email}`);
+      setUserLaps(savedLaps ? JSON.parse(savedLaps) : []);
+      
+      const savedFriends = localStorage.getItem(`apexlap_friends_${currentUser.email}`);
+      setFriendsList(savedFriends ? JSON.parse(savedFriends) : []);
     } else {
       localStorage.removeItem('apexlap_current_session');
       setUserLaps([]);
+      setFriendsList([]);
     }
   }, [currentUser]);
 
@@ -141,32 +155,62 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isRecording]);
 
-  // Caricamento foto dal dispositivo del telefono/PC
+  // Caricamento foto dal dispositivo
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setAvatarUrlInput(reader.result); // Converte l'immagine locale in formato visibile
+        setAvatarUrlInput(reader.result);
       };
       reader.readAsDataURL(file);
     }
   };
 
-  // Login / Registrazione
+  // Modifica Foto Profilo ad account già esistente
+  const handleUpdateAvatarInProfile = (e) => {
+    const file = e.target.files[0];
+    if (file && currentUser) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const updatedUser = { ...currentUser, avatarUrl: reader.result };
+        setCurrentUser(updatedUser);
+
+        const usersDB = JSON.parse(localStorage.getItem('apexlap_all_users') || '{}');
+        if (usersDB[currentUser.email]) {
+          usersDB[currentUser.email].avatarUrl = reader.result;
+          localStorage.setItem('apexlap_all_users', JSON.stringify(usersDB));
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Login / Registrazione con Controllo Username Unico
   const handleAuthSubmit = (e) => {
     e.preventDefault();
     if (!emailInput || !passwordInput) return;
 
     const emailKey = emailInput.toLowerCase();
+    const usernameKey = usernameInput.trim().toLowerCase();
     const usersDB = JSON.parse(localStorage.getItem('apexlap_all_users') || '{}');
 
     if (isRegisterMode) {
+      // Controllo se l'username è già stato preso
+      const usernameExists = Object.values(usersDB).some(
+        (user) => user.username && user.username.toLowerCase() === usernameKey
+      );
+
+      if (usernameExists) {
+        alert('Questo username è già in uso! Scegline un altro.');
+        return;
+      }
+
       const newUser = {
         email: emailKey,
         fullName: fullNameInput || 'Nome Cognome',
-        username: usernameInput || 'UserPilota',
-        avatarUrl: avatarUrlInput, // Può essere stringa vuota (foto bianca)
+        username: usernameInput || 'Pilota',
+        avatarUrl: avatarUrlInput,
         garage: [],
         activeCar: 'Nessuna Auto',
         joinedAt: new Date().toLocaleDateString('it-IT')
@@ -175,14 +219,29 @@ export default function App() {
       usersDB[emailKey] = { ...newUser, password: passwordInput };
       localStorage.setItem('apexlap_all_users', JSON.stringify(usersDB));
       setCurrentUser(newUser);
+      setShowAuthModal(false);
+      setAuthNotice('');
     } else {
       const found = usersDB[emailKey];
       if (found && found.password === passwordInput) {
         setCurrentUser(found);
+        setShowAuthModal(false);
+        setAuthNotice('');
       } else {
         alert('Credenziali errate o utente non trovato!');
       }
     }
+  };
+
+  // Avvio Sessione LIVE (Richiede registrazione se non loggato)
+  const handleStartRecordingClick = () => {
+    if (!currentUser) {
+      setAuthNotice('Devi registrarti o accedere per avviare la telemetria GPS e salvare i tuoi tempi!');
+      setIsRegisterMode(true);
+      setShowAuthModal(true);
+      return;
+    }
+    setIsRecording(true);
   };
 
   const handleLogout = () => {
@@ -192,9 +251,10 @@ export default function App() {
     setShowProfileModal(false);
   };
 
+  // Gestione Garage: Aggiungi & Elimina
   const handleAddCar = (e) => {
     e.preventDefault();
-    if (!newCarName.trim()) return;
+    if (!newCarName.trim() || !currentUser) return;
 
     const updatedGarage = [...(currentUser.garage || []), newCarName.trim()];
     const updatedUser = { 
@@ -215,6 +275,29 @@ export default function App() {
     setShowAddCarModal(false);
   };
 
+  const handleDeleteCar = (carToDelete) => {
+    if (!currentUser) return;
+
+    const updatedGarage = (currentUser.garage || []).filter(c => c !== carToDelete);
+    const updatedActiveCar = currentUser.activeCar === carToDelete 
+      ? (updatedGarage[0] || 'Nessuna Auto') 
+      : currentUser.activeCar;
+
+    const updatedUser = { 
+      ...currentUser, 
+      garage: updatedGarage,
+      activeCar: updatedActiveCar
+    };
+
+    setCurrentUser(updatedUser);
+    
+    const usersDB = JSON.parse(localStorage.getItem('apexlap_all_users') || '{}');
+    if (usersDB[currentUser.email]) {
+      usersDB[currentUser.email] = { ...usersDB[currentUser.email], ...updatedUser };
+      localStorage.setItem('apexlap_all_users', JSON.stringify(usersDB));
+    }
+  };
+
   const handleSelectActiveCar = (carName) => {
     const updatedUser = { ...currentUser, activeCar: carName };
     setCurrentUser(updatedUser);
@@ -226,6 +309,41 @@ export default function App() {
     }
   };
 
+  // Ricerca e Aggiungi Amico per Username
+  const handleAddFriend = (e) => {
+    e.preventDefault();
+    if (!searchFriendQuery.trim() || !currentUser) return;
+
+    const targetUser = searchFriendQuery.trim().toLowerCase();
+    const usersDB = JSON.parse(localStorage.getItem('apexlap_all_users') || '{}');
+    
+    const foundUser = Object.values(usersDB).find(
+      u => u.username && u.username.toLowerCase() === targetUser
+    );
+
+    if (!foundUser) {
+      alert('Nessun utente trovato con questo username!');
+      return;
+    }
+
+    if (foundUser.email === currentUser.email) {
+      alert('Non puoi aggiungere te stesso!');
+      return;
+    }
+
+    if (friendsList.some(f => f.email === foundUser.email)) {
+      alert('Questo amico è già nella tua lista!');
+      return;
+    }
+
+    const updatedFriends = [...friendsList, { username: foundUser.username, name: foundUser.fullName, email: foundUser.email }];
+    setFriendsList(updatedFriends);
+    localStorage.setItem(`apexlap_friends_${currentUser.email}`, JSON.stringify(updatedFriends));
+    setSearchFriendQuery('');
+    alert(`Amico @${foundUser.username} aggiunto alla tua cerchia!`);
+  };
+
+  // Salva Sessione
   const handleStopRecording = () => {
     setIsRecording(false);
     if (elapsedTime > 3 && currentUser) {
@@ -297,7 +415,6 @@ export default function App() {
   const totalKm = filteredLaps.reduce((acc, curr) => acc + parseFloat(curr.estimatedKm || 0), 0).toFixed(1);
   const totalHours = (filteredLaps.reduce((acc, curr) => acc + curr.durationSeconds, 0) / 3600).toFixed(1);
 
-  // Render per la foto profilo o sagoma bianca predefinita
   const renderAvatarImage = (url, sizeClasses = "w-8 h-8") => {
     if (url) {
       return <img src={url} alt="Avatar" className={`${sizeClasses} rounded-full object-cover border border-slate-700`} />;
@@ -308,139 +425,6 @@ export default function App() {
       </div>
     );
   };
-
-  // FORM LOGIN / REGISTRAZIONE
-  if (!currentUser) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex items-center justify-center p-4 select-none">
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm space-y-5 shadow-2xl relative">
-          
-          <div className="text-center space-y-1">
-            <div className="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-red-600/40 mb-2">
-              <Zap className="w-7 h-7 text-white fill-current" />
-            </div>
-            <h1 className="text-xl font-black italic bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-              APEXLAP
-            </h1>
-            <p className="text-xs text-slate-400">
-              {isRegisterMode ? 'Crea il tuo profilo utente (Foto Facoltativa)' : 'Accedi al tuo account'}
-            </p>
-          </div>
-
-          <form onSubmit={handleAuthSubmit} className="space-y-3">
-            {isRegisterMode && (
-              <>
-                <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Nome e Cognome</label>
-                  <input
-                    type="text"
-                    placeholder="Es. Nome Cognome"
-                    value={fullNameInput}
-                    onChange={(e) => setFullNameInput(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Username / Nickname</label>
-                  <input
-                    type="text"
-                    placeholder="Es. Pilota01"
-                    value={usernameInput}
-                    onChange={(e) => setUsernameInput(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
-                    required
-                  />
-                </div>
-
-                {/* SCELTA FOTO PROFILO / UPLOAD / BIANCA */}
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase block">Foto Profilo (Opzionale)</label>
-
-                  {/* CARICAMENTO FILE DAL TELEFONO / PC */}
-                  <label className="flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl p-2.5 cursor-pointer transition-colors text-xs text-slate-300">
-                    <Upload className="w-4 h-4 text-red-500" />
-                    <span className="font-semibold">Carica Foto dal Dispositivo</span>
-                    <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-                  </label>
-
-                  {/* ANTEPRIME PREDEFINITE: CASCO, AUTO O BIANCA */}
-                  <div className="grid grid-cols-3 gap-2 pt-1">
-                    {/* OPZIONE 1: FOTO BIANCA */}
-                    <button
-                      type="button"
-                      onClick={() => setAvatarUrlInput('')}
-                      className={`h-12 rounded-xl border flex flex-col items-center justify-center gap-0.5 bg-slate-950 transition-all ${avatarUrlInput === '' ? 'border-red-500 text-white font-bold' : 'border-slate-800 text-slate-500'}`}
-                    >
-                      <User className="w-4 h-4" />
-                      <span className="text-[9px]">Nessuna (Bianca)</span>
-                    </button>
-
-                    {/* OPZIONE 2 & 3: CASCO E AUTO */}
-                    {PRESET_AVATARS.map((av) => (
-                      <button
-                        key={av.id}
-                        type="button"
-                        onClick={() => setAvatarUrlInput(av.url)}
-                        className={`relative rounded-xl overflow-hidden border h-12 transition-all ${avatarUrlInput === av.url ? 'border-red-500 scale-105 shadow-md' : 'border-slate-800 opacity-60'}`}
-                      >
-                        <img src={av.url} alt={av.name} className="w-full h-full object-cover" />
-                        <span className="absolute bottom-0 inset-x-0 bg-slate-950/80 text-[8px] text-center text-slate-200 py-0.5 font-bold">
-                          {av.name}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Email</label>
-              <input
-                type="email"
-                placeholder="utente@email.com"
-                value={emailInput}
-                onChange={(e) => setEmailInput(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Password</label>
-              <input
-                type="password"
-                placeholder="••••••••"
-                value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-3 bg-red-600 hover:bg-red-500 rounded-xl font-bold text-white text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 uppercase tracking-wider mt-2"
-            >
-              {isRegisterMode ? 'REGISTRATI' : 'ACCEDI'}
-            </button>
-          </form>
-
-          <div className="text-center pt-2 border-t border-slate-800">
-            <button
-              onClick={() => setIsRegisterMode(!isRegisterMode)}
-              className="text-xs text-slate-400 hover:text-red-400 underline font-semibold"
-            >
-              {isRegisterMode ? 'Hai già un account? Accedi' : 'Non hai un account? Registrati ora'}
-            </button>
-          </div>
-
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-24 select-none">
@@ -455,40 +439,158 @@ export default function App() {
             <h1 className="text-lg font-black tracking-wider bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent italic">
               APEXLAP
             </h1>
-            <p className="text-[9px] text-red-500 font-black tracking-widest uppercase -mt-1">
-              PURE TRACK TELEMETRY
-            </p>
           </div>
         </div>
 
-        {/* PULSANTE PROFILO IN ALTO */}
-        <button 
-          onClick={() => setShowProfileModal(true)}
-          className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 p-1.5 pr-3 rounded-full border border-slate-700 transition-all active:scale-95"
-        >
-          {renderAvatarImage(currentUser.avatarUrl, "w-6 h-6")}
-          <span className="text-xs font-bold text-slate-200 truncate max-w-[80px]">
-            {currentUser.username || 'Profilo'}
-          </span>
-        </button>
+        {/* PULSANTE PROFILO O ACCESSO */}
+        {currentUser ? (
+          <button 
+            onClick={() => setShowProfileModal(true)}
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 p-1.5 pr-3 rounded-full border border-slate-700 transition-all active:scale-95"
+          >
+            {renderAvatarImage(currentUser.avatarUrl, "w-6 h-6")}
+            <span className="text-xs font-bold text-slate-200 truncate max-w-[80px]">
+              @{currentUser.username}
+            </span>
+          </button>
+        ) : (
+          <button
+            onClick={() => { setAuthNotice(''); setIsRegisterMode(true); setShowAuthModal(true); }}
+            className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 rounded-full text-xs font-bold text-white shadow-md flex items-center gap-1.5"
+          >
+            <User className="w-3.5 h-3.5" /> Registrati
+          </button>
+        )}
       </header>
 
-      {/* MODAL PROFILO & GARAGE */}
-      {showProfileModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[2000] flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm space-y-5 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+      {/* MODAL REGISTRAZIONE / ACCESSO */}
+      {showAuthModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[2500] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-2xl relative">
             
-            <button 
-              onClick={() => setShowProfileModal(false)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-white"
-            >
+            <button onClick={() => setShowAuthModal(false)} className="absolute right-4 top-4 text-slate-400 hover:text-white">
               <X className="w-5 h-5" />
             </button>
 
-            <div className="text-center space-y-2">
-              <div className="mx-auto w-20 h-20 flex items-center justify-center">
-                {renderAvatarImage(currentUser.avatarUrl, "w-20 h-20 border-2 border-red-500 shadow-xl")}
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-red-600/40 mb-2">
+                <Zap className="w-7 h-7 text-white fill-current" />
               </div>
+              <h1 className="text-xl font-black italic bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                APEXLAP
+              </h1>
+              {authNotice && (
+                <p className="text-xs font-bold text-red-400 bg-red-950/40 p-2 rounded-xl border border-red-500/30">
+                  {authNotice}
+                </p>
+              )}
+            </div>
+
+            <form onSubmit={handleAuthSubmit} className="space-y-3">
+              {isRegisterMode && (
+                <>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Nome e Cognome</label>
+                    <input
+                      type="text"
+                      placeholder="Es. Nome Cognome"
+                      value={fullNameInput}
+                      onChange={(e) => setFullNameInput(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Username Unico (per gli amici)</label>
+                    <input
+                      type="text"
+                      placeholder="Es. Pilota01"
+                      value={usernameInput}
+                      onChange={(e) => setUsernameInput(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
+                      required
+                    />
+                  </div>
+
+                  {/* FOTO PROFILO OPZIONALE */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block">Foto Profilo (Opzionale)</label>
+                    <label className="flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl p-2 cursor-pointer text-xs text-slate-300">
+                      <Upload className="w-3.5 h-3.5 text-red-500" />
+                      <span className="text-[11px] font-semibold">Scegli dal dispositivo</span>
+                      <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+                    </label>
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Email</label>
+                <input
+                  type="email"
+                  placeholder="utente@email.com"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Password</label>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3 bg-red-600 hover:bg-red-500 rounded-xl font-bold text-white text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 uppercase tracking-wider mt-2"
+              >
+                {isRegisterMode ? 'CREA ACCOUNT' : 'ACCEDI'}
+              </button>
+            </form>
+
+            <div className="text-center pt-2 border-t border-slate-800">
+              <button
+                onClick={() => setIsRegisterMode(!isRegisterMode)}
+                className="text-xs text-slate-400 hover:text-red-400 underline font-semibold"
+              >
+                {isRegisterMode ? 'Hai già un account? Accedi' : 'Non hai un account? Registrati ora'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PROFILO & GARAGE */}
+      {showProfileModal && currentUser && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[2000] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm space-y-5 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            
+            <button onClick={() => setShowProfileModal(false)} className="absolute right-4 top-4 text-slate-400 hover:text-white">
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* FOTO E INFO */}
+            <div className="text-center space-y-2">
+              <div className="relative inline-block">
+                {renderAvatarImage(currentUser.avatarUrl, "w-20 h-20 border-2 border-red-500 shadow-xl mx-auto")}
+                
+                {/* CAMBIA FOTO PROFILO */}
+                <label className="absolute bottom-0 right-0 bg-red-600 text-white p-1.5 rounded-full shadow-lg cursor-pointer hover:bg-red-500">
+                  <Upload className="w-3.5 h-3.5" />
+                  <input type="file" accept="image/*" onChange={handleUpdateAvatarInProfile} className="hidden" />
+                </label>
+              </div>
+
               <div>
                 <h3 className="text-lg font-bold text-white">{currentUser.fullName}</h3>
                 <p className="text-xs text-slate-400">@{currentUser.username}</p>
@@ -496,7 +598,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* GARAGE */}
+            {/* GARAGE CON TASTO ELIMINA */}
             <div className="bg-slate-950/80 p-4 rounded-2xl border border-slate-800 space-y-3">
               <div className="flex justify-between items-center">
                 <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
@@ -517,17 +619,26 @@ export default function App() {
                   {(currentUser.garage || []).map((car, idx) => {
                     const isActive = currentUser.activeCar === car;
                     return (
-                      <div 
-                        key={idx}
-                        onClick={() => handleSelectActiveCar(car)}
-                        className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer text-xs ${
-                          isActive 
-                            ? 'bg-red-950/40 border-red-500/80 text-white font-bold' 
-                            : 'bg-slate-900 border-slate-800 text-slate-400'
-                        }`}
-                      >
-                        <span>{car}</span>
-                        {isActive && <CheckCircle2 className="w-4 h-4 text-red-500" />}
+                      <div key={idx} className="flex items-center gap-2">
+                        <div 
+                          onClick={() => handleSelectActiveCar(car)}
+                          className={`flex-1 p-2.5 rounded-xl border flex items-center justify-between cursor-pointer text-xs ${
+                            isActive 
+                              ? 'bg-red-950/40 border-red-500/80 text-white font-bold' 
+                              : 'bg-slate-900 border-slate-800 text-slate-400'
+                          }`}
+                        >
+                          <span>{car}</span>
+                          {isActive && <CheckCircle2 className="w-4 h-4 text-red-500" />}
+                        </div>
+
+                        {/* TASTO ELIMINA AUTO */}
+                        <button
+                          onClick={() => handleDeleteCar(car)}
+                          className="p-2.5 bg-slate-900 hover:bg-red-950/50 hover:text-red-400 border border-slate-800 rounded-xl text-slate-500"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     );
                   })}
@@ -586,7 +697,6 @@ export default function App() {
         {/* 1. HOME DASHBOARD */}
         {activeTab === 'home' && (
           <div className="p-4 space-y-5">
-            
             <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-red-950/50 p-5 rounded-3xl border border-slate-800/80 shadow-2xl relative overflow-hidden">
               <div className="flex items-center gap-2 mb-1">
                 <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
@@ -596,7 +706,7 @@ export default function App() {
               <p className="text-xs text-slate-400 mt-1">Scegli una rotta sulla mappa o avvia subito la telemetria GPS dal vivo.</p>
               
               <button 
-                onClick={() => setActiveTab('live')} 
+                onClick={handleStartRecordingClick} 
                 className="mt-4 w-full py-3.5 bg-red-600 hover:bg-red-500 active:scale-95 transition-all rounded-2xl font-bold text-white text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 tracking-wider uppercase"
               >
                 <Play className="w-4 h-4 fill-current" /> AVVIA SESSIONE LIVE
@@ -607,7 +717,6 @@ export default function App() {
             <div className="space-y-3">
               <div className="flex justify-between items-center px-1">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">La Tua Attività</h3>
-                
                 <div className="flex bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[10px]">
                   {['giornaliero', 'settimanale', 'mensile'].map((tf) => (
                     <button
@@ -637,7 +746,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* EVENTI */}
+            {/* EVENTI & TORNEI */}
             <div className="space-y-3">
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Eventi & Challenge</h3>
               <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3 shadow-md">
@@ -653,43 +762,15 @@ export default function App() {
                   <h4 className="text-sm font-bold text-white">Challenge Sprint Notturno</h4>
                   <p className="text-xs text-slate-400 mt-0.5">Registra una sessione tra le 20:00 e le 02:00 su tratto extraurbano.</p>
                 </div>
-                <button 
-                  onClick={() => setActiveTab('map')} 
-                  className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1"
-                >
+                <button onClick={() => setActiveTab('map')} className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1">
                   Partecipa all'Evento <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
-
-            {/* TRATTI CONSIGLIATI */}
-            <div className="space-y-3">
-              <div className="flex justify-between items-center px-1">
-                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tratti Consigliati</h3>
-                <button onClick={() => setActiveTab('map')} className="text-xs text-red-400 font-semibold flex items-center">
-                  vedi mappa <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
-                </button>
-              </div>
-
-              <div 
-                onClick={() => setActiveTab('map')}
-                className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex items-center justify-between cursor-pointer hover:border-slate-700 transition-all shadow-md"
-              >
-                <div>
-                  <span className="text-[10px] font-bold text-red-500 uppercase">Tratto Panoramico</span>
-                  <h4 className="text-sm font-bold text-white">Misto Guidato Vicino a Te</h4>
-                  <p className="text-xs text-slate-400 mt-0.5">Lunghezza: 12.4 km • Curvatura: Alta</p>
-                </div>
-                <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-red-500 border border-slate-700">
-                  <MapIcon className="w-4 h-4" />
-                </div>
-              </div>
-            </div>
-
           </div>
         )}
 
-        {/* 2. MAPPA STRAVA-STYLE */}
+        {/* 2. MAPPA */}
         {activeTab === 'map' && (
           <div className="relative h-[calc(100vh-125px)] w-full overflow-hidden">
             <MapContainer center={mapCenter} zoom={mapZoom} scrollWheelZoom={true} className="h-full w-full z-0" zoomControl={false}>
@@ -732,7 +813,7 @@ export default function App() {
             <div className="inline-flex items-center gap-2 bg-slate-900 border border-slate-800 px-4 py-1.5 rounded-full">
               <div className={`w-2.5 h-2.5 rounded-full ${isRecording ? 'bg-red-500 animate-ping' : 'bg-slate-500'}`}></div>
               <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">
-                {isRecording ? `${currentUser.username} @ ${currentUser.activeCar || 'Auto'}` : 'Pronto al Via'}
+                {isRecording ? `${currentUser?.username} @ ${currentUser?.activeCar || 'Auto'}` : 'Pronto al Via'}
               </span>
             </div>
 
@@ -749,14 +830,14 @@ export default function App() {
               </div>
               <div className="pl-2">
                 <span className="text-[10px] font-bold text-slate-400 block uppercase">Auto in Uso</span>
-                <span className="text-xs font-bold text-amber-400 truncate block mt-2">{currentUser.activeCar || 'Nessuna'}</span>
+                <span className="text-xs font-bold text-amber-400 truncate block mt-2">{currentUser?.activeCar || 'Nessuna'}</span>
               </div>
             </div>
 
             <div>
               {!isRecording ? (
                 <button
-                  onClick={() => setIsRecording(true)}
+                  onClick={handleStartRecordingClick}
                   className="w-full py-4 bg-red-600 hover:bg-red-500 rounded-2xl font-black text-white text-base tracking-wider flex items-center justify-center gap-2 shadow-xl shadow-red-600/30"
                 >
                   <Play className="w-5 h-5 fill-current" /> AVVIA TRACCIAMENTO
@@ -773,17 +854,17 @@ export default function App() {
           </div>
         )}
 
-        {/* 4. CLASSIFICA UTENTE */}
+        {/* 4. CLASSIFICA */}
         {activeTab === 'leaderboard' && (
           <div className="p-4 space-y-4">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-amber-400" /> Classifica Personale (@{currentUser.username})
+              <Trophy className="w-5 h-5 text-amber-400" /> Classifica Tempi Personali
             </h2>
 
             {userLaps.length === 0 ? (
               <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 text-center space-y-1">
                 <p className="text-xs text-slate-300 font-bold">Nessun tempo registrato</p>
-                <p className="text-[11px] text-slate-500">Avvia una sessione LIVE con il GPS per registrare i tuoi tempi sul tuo database!</p>
+                <p className="text-[11px] text-slate-500">Avvia una sessione LIVE per registrare i tuoi tempi!</p>
               </div>
             ) : (
               <div className="bg-slate-900 rounded-3xl border border-slate-800 divide-y divide-slate-800 shadow-xl overflow-hidden">
@@ -796,7 +877,7 @@ export default function App() {
                           #{idx + 1}
                         </span>
                         <div>
-                          <h4 className="text-sm font-bold text-white">@{currentUser.username}</h4>
+                          <h4 className="text-sm font-bold text-white">@{lap.userName}</h4>
                           <p className="text-xs text-slate-400">{lap.userCar} • {lap.date}</p>
                         </div>
                       </div>
@@ -808,31 +889,103 @@ export default function App() {
           </div>
         )}
 
-        {/* 5. FEED ATTIVITÀ PERSONALE */}
+        {/* 5. FEED: AGGIUNGI AMICI, VISTA PERSONALE VS GRUPPI / TORNEI */}
         {activeTab === 'feed' && (
           <div className="p-4 space-y-4">
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <Activity className="w-5 h-5 text-red-500" /> Feed Attività Utente
-            </h2>
+            
+            {/* SUB-TABS: PERSONALE VS GRUPPI / TORNEI */}
+            <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800">
+              <button
+                onClick={() => setFeedSubTab('personale')}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${feedSubTab === 'personale' ? 'bg-red-600 text-white shadow-md' : 'text-slate-400'}`}
+              >
+                Personale & Trofei
+              </button>
+              <button
+                onClick={() => setFeedSubTab('gruppi')}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${feedSubTab === 'gruppi' ? 'bg-red-600 text-white shadow-md' : 'text-slate-400'}`}
+              >
+                Gruppi & Tornei
+              </button>
+            </div>
 
-            {userLaps.length === 0 ? (
-              <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 text-center">
-                <p className="text-xs text-slate-400">Nessuna attività registrata per il tuo account.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {userLaps.map((lap) => (
-                  <div key={lap.id} className="bg-slate-900 p-4 rounded-3xl border border-slate-800 space-y-2">
-                    <div className="flex justify-between items-start">
-                      <span className="text-xs font-bold text-white">@{currentUser.username} ({lap.userCar})</span>
-                      <span className="text-[10px] text-slate-500">{lap.date}</span>
-                    </div>
-                    <p className="text-xs text-slate-300">Ha completato un tracciamento GPS a {lap.location}.</p>
-                    <span className="text-[10px] text-red-400 font-semibold block">Tempo: {lap.timeFormatted} • Max Speed: {lap.maxSpeed} km/h</span>
+            {/* SEZIONE 1: PERSONALE & TROFEI */}
+            {feedSubTab === 'personale' && (
+              <div className="space-y-4">
+                
+                {/* BARRA PER CERCARE E AGGIUNGERE AMICI TRAMITE USERNAME */}
+                <form onSubmit={handleAddFriend} className="bg-slate-900 p-3 rounded-2xl border border-slate-800 space-y-2">
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase block">Cerca Amico per Username</span>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Username esatto dell'amico..."
+                      value={searchFriendQuery}
+                      onChange={(e) => setSearchFriendQuery(e.target.value)}
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
+                    />
+                    <button type="submit" className="px-3 bg-red-600 hover:bg-red-500 rounded-xl text-xs font-bold text-white flex items-center gap-1">
+                      <UserPlus className="w-3.5 h-3.5" /> Aggiungi
+                    </button>
                   </div>
-                ))}
+                </form>
+
+                {/* CERCHIA DI AMICI */}
+                {friendsList.length > 0 && (
+                  <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-2">
+                    <span className="text-[10px] font-extrabold text-red-500 uppercase tracking-wider block">La tua Cerchia Amici</span>
+                    <div className="flex gap-2 overflow-x-auto py-1">
+                      {friendsList.map((f, i) => (
+                        <div key={i} className="bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-200 whitespace-nowrap">
+                          @{f.username}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* TROFEI E STATS PERSONALI */}
+                <div className="bg-slate-900 p-4 rounded-3xl border border-slate-800 space-y-3">
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <Award className="w-4 h-4 text-amber-400" /> I Tuoi Trofei Personali
+                  </h3>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-center">
+                      <span className="text-[9px] font-bold text-slate-400 block uppercase">Trofeo Velocità</span>
+                      <span className="text-sm font-bold text-amber-400">{maxSpeed} km/h Max</span>
+                    </div>
+                    <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-center">
+                      <span className="text-[9px] font-bold text-slate-400 block uppercase">Sessioni Salvate</span>
+                      <span className="text-sm font-bold text-white">{userLaps.length} Totali</span>
+                    </div>
+                  </div>
+                </div>
+
               </div>
             )}
+
+            {/* SEZIONE 2: GRUPPI & TORNEI A TEMPO */}
+            {feedSubTab === 'gruppi' && (
+              <div className="space-y-4">
+                <div className="bg-slate-900 p-4 rounded-3xl border border-slate-800 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                      <Users className="w-4 h-4 text-red-500" /> Torneo Prova a Tempo Notturno
+                    </h3>
+                    <span className="bg-red-600/20 text-red-400 text-[9px] font-extrabold px-2 py-0.5 rounded-full border border-red-500/30">
+                      IN CORSO
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">Gara a tempo tra i membri dei gruppi sulla tratta urbana. Chi realizza il miglior giro entro domenica vince il badge!</p>
+                  
+                  <button onClick={handleStartRecordingClick} className="w-full py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-xs shadow-md">
+                    Partecipa Ora alla Prova a Tempo
+                  </button>
+                </div>
+              </div>
+            )}
+
           </div>
         )}
 
