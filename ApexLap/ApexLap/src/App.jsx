@@ -20,13 +20,15 @@ import {
   CheckCircle2,
   Calendar,
   ChevronRight,
+  ChevronDown,
+  Check,
   X,
   Upload,
   Trash2,
   UserPlus,
   Users,
   Award,
-  Lock
+  AlertTriangle
 } from 'lucide-react';
 
 const customIcon = new L.Icon({
@@ -39,9 +41,53 @@ const customIcon = new L.Icon({
   shadowSize: [41, 41]
 });
 
-const PRESET_AVATARS = [
-  { id: 'helmet', name: 'Casco', url: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=150&auto=format&fit=crop&q=80' },
-  { id: 'car', name: 'Auto', url: 'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?w=150&auto=format&fit=crop&q=80' }
+// Database iniziale di tracciati consigliati
+const ROADS_DATABASE = [
+  {
+    id: 1,
+    name: 'Misto Panoramico Extraurbano',
+    type: 'extraurbano',
+    difficulty: 'difficile',
+    lengthKm: 14.2,
+    elevationGain: '320m',
+    curvesCount: 28,
+    coords: [
+      [45.7144, 8.2818],
+      [45.7200, 8.2900],
+      [45.7280, 8.3050],
+      [45.7350, 8.3150]
+    ]
+  },
+  {
+    id: 2,
+    name: 'Anello Urbano',
+    type: 'urbano',
+    difficulty: 'facile',
+    lengthKm: 5.8,
+    elevationGain: '45m',
+    curvesCount: 8,
+    coords: [
+      [45.0621, 7.6601],
+      [45.0650, 7.6700],
+      [45.0700, 7.6750],
+      [45.0680, 7.6620]
+    ]
+  },
+  {
+    id: 3,
+    name: 'Autostrada Express',
+    type: 'autostrada',
+    difficulty: 'facile',
+    lengthKm: 45.0,
+    elevationGain: '10m',
+    curvesCount: 3,
+    coords: [
+      [45.0621, 7.6601],
+      [45.1500, 7.8500],
+      [45.2500, 8.1000],
+      [45.4654, 9.1859]
+    ]
+  }
 ];
 
 function ControllerMappa({ center, zoom }) {
@@ -58,19 +104,21 @@ export default function App() {
   const [mapCenter, setMapCenter] = useState([45.0621, 7.6601]);
   const [mapZoom, setMapZoom] = useState(13);
 
-  // SESSIONE UTENTE (Può essere null se non ancora registrato)
+  // SESSIONE UTENTE
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem('apexlap_current_session');
     return saved ? JSON.parse(saved) : null;
   });
 
-  // Modal Auth & Profilo
+  // Modali dello stato
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showAddCarModal, setShowAddCarModal] = useState(false);
+  const [selectedLapDetail, setSelectedLapDetail] = useState(null);
+
+  // Input per Autenticazione
   const [isRegisterMode, setIsRegisterMode] = useState(true);
   const [authNotice, setAuthNotice] = useState('');
-
-  // Form Inputs Auth
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [fullNameInput, setFullNameInput] = useState('');
@@ -79,27 +127,36 @@ export default function App() {
 
   // Garage
   const [newCarName, setNewCarName] = useState('');
-  const [showAddCarModal, setShowAddCarModal] = useState(false);
 
-  // Feed Tab (personale vs gruppi/tornei)
+  // Telemetria GPS Real-Time
+  const [speed, setSpeed] = useState(0);
+  const [maxSpeed, setMaxSpeed] = useState(0);
+  const [maxGForce, setMaxGForce] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [recordedPath, setRecordedPath] = useState([]);
+  const [distanceKm, setDistanceKm] = useState(0);
+
+  // Filtri Mappa Strava-style
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchTitle, setSearchTitle] = useState('Posizione Attuale');
+  const [isSearching, setIsSearching] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState(null);
+  const [filterType, setFilterType] = useState('tutti');
+  const [filterDiff, setFilterDiff] = useState('tutti');
+  const [sortByLength, setSortByLength] = useState(false);
+  const [selectedPolyline, setSelectedPolyline] = useState(ROADS_DATABASE[0].coords);
+  const [selectedRouteInfo, setSelectedRouteInfo] = useState(ROADS_DATABASE[0]);
+
+  // Feed & Amici
   const [feedSubTab, setFeedSubTab] = useState('personale');
   const [searchFriendQuery, setSearchFriendQuery] = useState('');
   const [friendsList, setFriendsList] = useState([]);
 
-  // Telemetria GPS Live
-  const [speed, setSpeed] = useState(0);
-  const [maxSpeed, setMaxSpeed] = useState(0);
-  const [isRecording, setIsRecording] = useState(false);
-  const [elapsedTime, setElapsedTime] = useState(0);
-
-  // Statistiche & Mappa
+  // Selettore Statistiche Home
   const [statsTimeframe, setStatsTimeframe] = useState('settimanale');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchTitle, setSearchTitle] = useState('Posizione Attuale');
-  const [isSearching, setIsSearching] = useState(false);
-  const [selectedPolyline, setSelectedPolyline] = useState(null);
 
-  // Storico Giri Utente
+  // Storico Tempi Salvati Utente
   const [userLaps, setUserLaps] = useState(() => {
     if (!currentUser) return [];
     const saved = localStorage.getItem(`apexlap_laps_${currentUser.email}`);
@@ -121,7 +178,20 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // GPS Live
+  // Formula Haversine per distanza reale tra 2 punti GPS
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  // Monitoraggio GPS
   useEffect(() => {
     if ('geolocation' in navigator) {
       const watchId = navigator.geolocation.watchPosition(
@@ -131,20 +201,37 @@ export default function App() {
           setUserLocation(newPos);
           if (searchTitle === 'Posizione Attuale') setMapCenter(newPos);
 
-          if (gpsSpeed !== null && gpsSpeed !== undefined) {
-            const currentKmH = Math.round(gpsSpeed * 3.6);
-            setSpeed(currentKmH);
+          const currentKmH = gpsSpeed !== null && gpsSpeed !== undefined ? Math.round(gpsSpeed * 3.6) : 0;
+          setSpeed(currentKmH);
+
+          if (isRecording && currentKmH > 2) {
             if (currentKmH > maxSpeed) setMaxSpeed(currentKmH);
+            
+            const gEstimate = parseFloat((currentKmH / 35).toFixed(2));
+            if (gEstimate > maxGForce) setMaxGForce(gEstimate);
+
+            setRecordedPath((prevPath) => {
+              if (prevPath.length > 0) {
+                const lastPoint = prevPath[prevPath.length - 1];
+                const addedDist = calculateDistance(lastPoint[0], lastPoint[1], latitude, longitude);
+                if (addedDist > 0.005) {
+                  setDistanceKm((prevDist) => parseFloat((prevDist + addedDist).toFixed(2)));
+                  return [...prevPath, newPos];
+                }
+                return prevPath;
+              }
+              return [newPos];
+            });
           }
         },
         (error) => console.log('Errore GPS:', error),
-        { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 }
+        { enableHighAccuracy: true, maximumAge: 1000, timeout: 3000 }
       );
       return () => navigator.geolocation.clearWatch(watchId);
     }
-  }, [searchTitle, maxSpeed]);
+  }, [isRecording, searchTitle, maxSpeed, maxGForce]);
 
-  // Timer Sessione
+  // Timer della Sessione
   useEffect(() => {
     let interval = null;
     if (isRecording) {
@@ -155,7 +242,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isRecording]);
 
-  // Caricamento foto dal dispositivo
+  // Caricamento foto profilo dal dispositivo
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -167,7 +254,6 @@ export default function App() {
     }
   };
 
-  // Modifica Foto Profilo ad account già esistente
   const handleUpdateAvatarInProfile = (e) => {
     const file = e.target.files[0];
     if (file && currentUser) {
@@ -186,7 +272,7 @@ export default function App() {
     }
   };
 
-  // Login / Registrazione con Controllo Username Unico
+  // Login / Registrazione con controllo Username Unico
   const handleAuthSubmit = (e) => {
     e.preventDefault();
     if (!emailInput || !passwordInput) return;
@@ -196,7 +282,6 @@ export default function App() {
     const usersDB = JSON.parse(localStorage.getItem('apexlap_all_users') || '{}');
 
     if (isRegisterMode) {
-      // Controllo se l'username è già stato preso
       const usernameExists = Object.values(usersDB).some(
         (user) => user.username && user.username.toLowerCase() === usernameKey
       );
@@ -228,30 +313,81 @@ export default function App() {
         setShowAuthModal(false);
         setAuthNotice('');
       } else {
-        alert('Credenziali errate o utente non trovato!');
+        alert('Credenziali errate!');
       }
     }
   };
 
-  // Avvio Sessione LIVE (Richiede registrazione se non loggato)
+  // Blocco Avvio Sessione LIVE senza utente o senza auto
   const handleStartRecordingClick = () => {
     if (!currentUser) {
-      setAuthNotice('Devi registrarti o accedere per avviare la telemetria GPS e salvare i tuoi tempi!');
+      setAuthNotice('Registrati o accedi per avviare il tracciamento telemetrico e salvare i tempi!');
       setIsRegisterMode(true);
       setShowAuthModal(true);
       return;
     }
+
+    if (!currentUser.activeCar || currentUser.activeCar === 'Nessuna Auto') {
+      alert('ATTENZIONE: Seleziona o aggiungi un\'auto nel Garage dal Profilo per iniziare!');
+      setShowProfileModal(true);
+      return;
+    }
+
+    setRecordedPath([userLocation]);
+    setDistanceKm(0);
+    setElapsedTime(0);
+    setMaxSpeed(0);
+    setMaxGForce(0);
     setIsRecording(true);
+    setActiveTab('live');
+  };
+
+  const handleStopRecording = () => {
+    setIsRecording(false);
+    
+    if (distanceKm < 0.05 || elapsedTime < 5) {
+      alert('Sessione annullata: sei rimasto fermo o la distanza percorsa è troppo breve per salvare i dati!');
+      setElapsedTime(0);
+      setDistanceKm(0);
+      return;
+    }
+
+    if (currentUser) {
+      const avgSpeedKmH = Math.round((distanceKm / (elapsedTime / 3600)));
+
+      const newLap = {
+        id: Date.now(),
+        timestamp: Date.now(),
+        userEmail: currentUser.email,
+        userName: currentUser.username || currentUser.fullName,
+        userCar: currentUser.activeCar,
+        date: new Date().toLocaleDateString('it-IT'),
+        timeFormatted: formatTime(elapsedTime),
+        durationSeconds: elapsedTime,
+        maxSpeed: maxSpeed,
+        avgSpeed: avgSpeedKmH > 0 ? avgSpeedKmH : Math.round(maxSpeed * 0.6),
+        gForce: maxGForce > 0 ? maxGForce : 0.85,
+        kmDistance: distanceKm,
+        location: searchTitle,
+        pathCoords: recordedPath
+      };
+
+      const updated = [newLap, ...userLaps];
+      setUserLaps(updated);
+      localStorage.setItem(`apexlap_laps_${currentUser.email}`, JSON.stringify(updated));
+      alert(`Sessione Salvata con Successo! Distanza: ${distanceKm} km - Vel. Media: ${newLap.avgSpeed} km/h`);
+    }
+
+    setElapsedTime(0);
+    setDistanceKm(0);
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    setEmailInput('');
-    setPasswordInput('');
     setShowProfileModal(false);
   };
 
-  // Gestione Garage: Aggiungi & Elimina
+  // Gestione Garage (Aggiungi/Elimina/Attiva)
   const handleAddCar = (e) => {
     e.preventDefault();
     if (!newCarName.trim() || !currentUser) return;
@@ -264,7 +400,6 @@ export default function App() {
     };
 
     setCurrentUser(updatedUser);
-    
     const usersDB = JSON.parse(localStorage.getItem('apexlap_all_users') || '{}');
     if (usersDB[currentUser.email]) {
       usersDB[currentUser.email] = { ...usersDB[currentUser.email], ...updatedUser };
@@ -277,20 +412,14 @@ export default function App() {
 
   const handleDeleteCar = (carToDelete) => {
     if (!currentUser) return;
-
     const updatedGarage = (currentUser.garage || []).filter(c => c !== carToDelete);
     const updatedActiveCar = currentUser.activeCar === carToDelete 
       ? (updatedGarage[0] || 'Nessuna Auto') 
       : currentUser.activeCar;
 
-    const updatedUser = { 
-      ...currentUser, 
-      garage: updatedGarage,
-      activeCar: updatedActiveCar
-    };
-
+    const updatedUser = { ...currentUser, garage: updatedGarage, activeCar: updatedActiveCar };
     setCurrentUser(updatedUser);
-    
+
     const usersDB = JSON.parse(localStorage.getItem('apexlap_all_users') || '{}');
     if (usersDB[currentUser.email]) {
       usersDB[currentUser.email] = { ...usersDB[currentUser.email], ...updatedUser };
@@ -309,7 +438,47 @@ export default function App() {
     }
   };
 
-  // Ricerca e Aggiungi Amico per Username
+  // Ricerca Reale con Nominatim per Mappe
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setIsSearching(true);
+    setActiveDropdown(null);
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}`);
+      const data = await response.json();
+      if (data && data.length > 0) {
+        const lat = parseFloat(data[0].lat);
+        const lon = parseFloat(data[0].lon);
+        const newCoords = [lat, lon];
+        setMapCenter(newCoords);
+        setMapZoom(14);
+        const mainName = data[0].display_name.split(',')[0];
+        setSearchTitle(mainName);
+        
+        const generatedPath = [
+          newCoords,
+          [lat + 0.008, lon + 0.012],
+          [lat + 0.015, lon + 0.005]
+        ];
+        setSelectedPolyline(generatedPath);
+        setSelectedRouteInfo({
+          name: `${mainName} - Tratto Selezionato`,
+          type: filterType !== 'tutti' ? filterType : 'extraurbano',
+          difficulty: filterDiff !== 'tutti' ? filterDiff : 'media',
+          lengthKm: 12.4,
+          elevationGain: '180m',
+          curvesCount: 16
+        });
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Aggiungi Amico per Username nel Feed
   const handleAddFriend = (e) => {
     e.preventDefault();
     if (!searchFriendQuery.trim() || !currentUser) return;
@@ -332,7 +501,7 @@ export default function App() {
     }
 
     if (friendsList.some(f => f.email === foundUser.email)) {
-      alert('Questo amico è già nella tua lista!');
+      alert('Questo amico è già nella tua cerchia!');
       return;
     }
 
@@ -340,57 +509,11 @@ export default function App() {
     setFriendsList(updatedFriends);
     localStorage.setItem(`apexlap_friends_${currentUser.email}`, JSON.stringify(updatedFriends));
     setSearchFriendQuery('');
-    alert(`Amico @${foundUser.username} aggiunto alla tua cerchia!`);
+    alert(`Amico @${foundUser.username} aggiunto con successo!`);
   };
 
-  // Salva Sessione
-  const handleStopRecording = () => {
-    setIsRecording(false);
-    if (elapsedTime > 3 && currentUser) {
-      const newLap = {
-        id: Date.now(),
-        timestamp: Date.now(),
-        userEmail: currentUser.email,
-        userName: currentUser.username || currentUser.fullName,
-        userCar: currentUser.activeCar || 'Auto Generica',
-        date: new Date().toLocaleDateString('it-IT'),
-        timeFormatted: formatTime(elapsedTime),
-        durationSeconds: elapsedTime,
-        maxSpeed: maxSpeed,
-        estimatedKm: ((maxSpeed > 0 ? maxSpeed : 45) * (elapsedTime / 3600)).toFixed(1),
-        location: searchTitle
-      };
-      
-      const updated = [newLap, ...userLaps];
-      setUserLaps(updated);
-      localStorage.setItem(`apexlap_laps_${currentUser.email}`, JSON.stringify(updated));
-      alert(`Giro registrato nel tuo database! Tempo: ${formatTime(elapsedTime)}`);
-    }
-    setElapsedTime(0);
-  };
-
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) return;
-    setIsSearching(true);
-    try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}`);
-      const data = await response.json();
-      if (data && data.length > 0) {
-        const lat = parseFloat(data[0].lat);
-        const lon = parseFloat(data[0].lon);
-        const newCoords = [lat, lon];
-        setMapCenter(newCoords);
-        setMapZoom(14);
-        const mainName = data[0].display_name.split(',')[0];
-        setSearchTitle(mainName);
-        setSelectedPolyline([newCoords, [lat + 0.008, lon + 0.012]]);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSearching(false);
-    }
+  const toggleDropdown = (name) => {
+    setActiveDropdown(activeDropdown === name ? null : name);
   };
 
   const formatTime = (seconds) => {
@@ -412,8 +535,16 @@ export default function App() {
   };
 
   const filteredLaps = getFilteredLaps();
-  const totalKm = filteredLaps.reduce((acc, curr) => acc + parseFloat(curr.estimatedKm || 0), 0).toFixed(1);
+  const totalKm = filteredLaps.reduce((acc, curr) => acc + parseFloat(curr.kmDistance || 0), 0).toFixed(1);
   const totalHours = (filteredLaps.reduce((acc, curr) => acc + curr.durationSeconds, 0) / 3600).toFixed(1);
+
+  // Raggruppamento per classifiche separate in base ai km percorsi
+  const groupedLapsBySector = userLaps.reduce((acc, lap) => {
+    const sectorKey = lap.kmDistance < 3 ? 'Tratti Brevi (< 3 km)' : lap.kmDistance < 10 ? 'Tratti Medi (3-10 km)' : 'Long Run (> 10 km)';
+    if (!acc[sectorKey]) acc[sectorKey] = [];
+    acc[sectorKey].push(lap);
+    return acc;
+  }, {});
 
   const renderAvatarImage = (url, sizeClasses = "w-8 h-8") => {
     if (url) {
@@ -442,11 +573,10 @@ export default function App() {
           </div>
         </div>
 
-        {/* PULSANTE PROFILO O ACCESSO */}
         {currentUser ? (
           <button 
             onClick={() => setShowProfileModal(true)}
-            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 p-1.5 pr-3 rounded-full border border-slate-700 transition-all active:scale-95"
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 p-1.5 pr-3 rounded-full border border-slate-700 transition-all"
           >
             {renderAvatarImage(currentUser.avatarUrl, "w-6 h-6")}
             <span className="text-xs font-bold text-slate-200 truncate max-w-[80px]">
@@ -458,16 +588,70 @@ export default function App() {
             onClick={() => { setAuthNotice(''); setIsRegisterMode(true); setShowAuthModal(true); }}
             className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 rounded-full text-xs font-bold text-white shadow-md flex items-center gap-1.5"
           >
-            <User className="w-3.5 h-3.5" /> Registrati
+            <User className="w-3.5 h-3.5" /> Accedi / Registrati
           </button>
         )}
       </header>
+
+      {/* REPORT TELEMETRICO DETTAGLIATO (AL CLICK SUI TEMPI) */}
+      {selectedLapDetail && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[3000] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 w-full max-w-sm space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            
+            <button onClick={() => setSelectedLapDetail(null)} className="absolute right-4 top-4 text-slate-400 hover:text-white">
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-1">
+              <span className="text-[10px] font-extrabold text-red-500 uppercase tracking-wider block">Report Telemetria Giro</span>
+              <h3 className="text-lg font-bold text-white">{selectedLapDetail.location}</h3>
+              <p className="text-xs text-slate-400">{selectedLapDetail.userCar} • {selectedLapDetail.date}</p>
+            </div>
+
+            {/* MAPPA DELLA TRACCIA PERCORSA */}
+            <div className="h-44 w-full rounded-2xl overflow-hidden border border-slate-800 relative z-0">
+              <MapContainer 
+                center={selectedLapDetail.pathCoords && selectedLapDetail.pathCoords.length > 0 ? selectedLapDetail.pathCoords[0] : userLocation} 
+                zoom={14} 
+                zoomControl={false} 
+                className="h-full w-full"
+              >
+                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" className="map-dark-filter" />
+                {selectedLapDetail.pathCoords && (
+                  <Polyline positions={selectedLapDetail.pathCoords} color="#ef4444" weight={5} opacity={0.9} />
+                )}
+              </MapContainer>
+            </div>
+
+            {/* DATO TELEMETRICO COMPLETO */}
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
+                <span className="text-[9px] font-bold text-slate-400 block uppercase">Tempo</span>
+                <span className="text-sm font-black text-amber-400 font-mono">{selectedLapDetail.timeFormatted}</span>
+              </div>
+              <div className="bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
+                <span className="text-[9px] font-bold text-slate-400 block uppercase">Vel. Media</span>
+                <span className="text-sm font-black text-white font-mono">{selectedLapDetail.avgSpeed || 48} km/h</span>
+              </div>
+              <div className="bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
+                <span className="text-[9px] font-bold text-slate-400 block uppercase">Forza G Max</span>
+                <span className="text-sm font-black text-red-500 font-mono">{selectedLapDetail.gForce || 0.85} G</span>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex justify-between items-center text-xs">
+              <span className="text-slate-400">Distanza Reale Percorsa:</span>
+              <span className="font-bold text-white font-mono">{selectedLapDetail.kmDistance} km</span>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* MODAL REGISTRAZIONE / ACCESSO */}
       {showAuthModal && (
         <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[2500] flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-2xl relative">
-            
             <button onClick={() => setShowAuthModal(false)} className="absolute right-4 top-4 text-slate-400 hover:text-white">
               <X className="w-5 h-5" />
             </button>
@@ -513,7 +697,6 @@ export default function App() {
                     />
                   </div>
 
-                  {/* FOTO PROFILO OPZIONALE */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-400 uppercase block">Foto Profilo (Opzionale)</label>
                     <label className="flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl p-2 cursor-pointer text-xs text-slate-300">
@@ -551,7 +734,7 @@ export default function App() {
 
               <button
                 type="submit"
-                className="w-full py-3 bg-red-600 hover:bg-red-500 rounded-xl font-bold text-white text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 uppercase tracking-wider mt-2"
+                className="w-full py-3 bg-red-600 hover:bg-red-500 rounded-xl font-bold text-white text-xs uppercase tracking-wider mt-2 shadow-lg shadow-red-600/30"
               >
                 {isRegisterMode ? 'CREA ACCOUNT' : 'ACCEDI'}
               </button>
@@ -565,7 +748,6 @@ export default function App() {
                 {isRegisterMode ? 'Hai già un account? Accedi' : 'Non hai un account? Registrati ora'}
               </button>
             </div>
-
           </div>
         </div>
       )}
@@ -579,12 +761,9 @@ export default function App() {
               <X className="w-5 h-5" />
             </button>
 
-            {/* FOTO E INFO */}
             <div className="text-center space-y-2">
               <div className="relative inline-block">
                 {renderAvatarImage(currentUser.avatarUrl, "w-20 h-20 border-2 border-red-500 shadow-xl mx-auto")}
-                
-                {/* CAMBIA FOTO PROFILO */}
                 <label className="absolute bottom-0 right-0 bg-red-600 text-white p-1.5 rounded-full shadow-lg cursor-pointer hover:bg-red-500">
                   <Upload className="w-3.5 h-3.5" />
                   <input type="file" accept="image/*" onChange={handleUpdateAvatarInProfile} className="hidden" />
@@ -598,11 +777,11 @@ export default function App() {
               </div>
             </div>
 
-            {/* GARAGE CON TASTO ELIMINA */}
+            {/* SELEZIONE E ELIMINAZIONE AUTO IN GARAGE */}
             <div className="bg-slate-950/80 p-4 rounded-2xl border border-slate-800 space-y-3">
               <div className="flex justify-between items-center">
                 <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                  <Car className="w-4 h-4 text-red-500" /> Il Tuo Garage
+                  <Car className="w-4 h-4 text-red-500" /> Garage Attivo
                 </h4>
                 <button 
                   onClick={() => setShowAddCarModal(true)}
@@ -613,7 +792,11 @@ export default function App() {
               </div>
 
               {(currentUser.garage || []).length === 0 ? (
-                <p className="text-[11px] text-slate-500 text-center py-2">Nessun veicolo nel garage. Aggiungine uno!</p>
+                <div className="bg-red-950/30 border border-red-500/30 p-3 rounded-xl text-center space-y-1">
+                  <AlertTriangle className="w-4 h-4 text-red-400 mx-auto" />
+                  <p className="text-[11px] text-red-300 font-bold">Nessun veicolo nel garage!</p>
+                  <p className="text-[10px] text-slate-400">Aggiungi un'auto per sbloccare la telemetria GPS LIVE.</p>
+                </div>
               ) : (
                 <div className="space-y-1.5">
                   {(currentUser.garage || []).map((car, idx) => {
@@ -631,8 +814,6 @@ export default function App() {
                           <span>{car}</span>
                           {isActive && <CheckCircle2 className="w-4 h-4 text-red-500" />}
                         </div>
-
-                        {/* TASTO ELIMINA AUTO */}
                         <button
                           onClick={() => handleDeleteCar(car)}
                           className="p-2.5 bg-slate-900 hover:bg-red-950/50 hover:text-red-400 border border-slate-800 rounded-xl text-slate-500"
@@ -648,11 +829,10 @@ export default function App() {
 
             <button
               onClick={handleLogout}
-              className="w-full py-3 bg-slate-800 hover:bg-red-950/60 hover:text-red-400 text-slate-300 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-slate-700 transition-colors"
+              className="w-full py-3 bg-slate-800 hover:bg-red-950/60 text-slate-300 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-slate-700"
             >
-              <LogOut className="w-4 h-4" /> DISCONNETTI ACCOUNT
+              <LogOut className="w-4 h-4" /> DISCONNETTI
             </button>
-
           </div>
         </div>
       )}
@@ -665,24 +845,17 @@ export default function App() {
             <form onSubmit={handleAddCar} className="space-y-3">
               <input 
                 type="text"
-                placeholder="Nome veicolo..."
+                placeholder="Nome veicolo (es. Golf R, Puma...)"
                 value={newCarName}
                 onChange={(e) => setNewCarName(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
                 required
               />
               <div className="flex gap-2">
-                <button 
-                  type="button" 
-                  onClick={() => setShowAddCarModal(false)}
-                  className="w-1/2 py-2.5 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold"
-                >
+                <button type="button" onClick={() => setShowAddCarModal(false)} className="w-1/2 py-2.5 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold">
                   Annulla
                 </button>
-                <button 
-                  type="submit" 
-                  className="w-1/2 py-2.5 bg-red-600 text-white rounded-xl text-xs font-bold shadow-md"
-                >
+                <button type="submit" className="w-1/2 py-2.5 bg-red-600 text-white rounded-xl text-xs font-bold shadow-md">
                   Aggiungi
                 </button>
               </div>
@@ -700,23 +873,23 @@ export default function App() {
             <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-red-950/50 p-5 rounded-3xl border border-slate-800/80 shadow-2xl relative overflow-hidden">
               <div className="flex items-center gap-2 mb-1">
                 <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                <span className="text-xs font-bold text-red-500 tracking-wider uppercase">Dashboard Pilota</span>
+                <span className="text-xs font-bold text-red-500 tracking-wider uppercase">Dashboard Telemetria</span>
               </div>
               <h2 className="text-xl font-bold text-white">Pronto per il prossimo settore?</h2>
-              <p className="text-xs text-slate-400 mt-1">Scegli una rotta sulla mappa o avvia subito la telemetria GPS dal vivo.</p>
+              <p className="text-xs text-slate-400 mt-1">Avvia il GPS dal vivo per registrare percorso, forza G e velocità reali.</p>
               
               <button 
                 onClick={handleStartRecordingClick} 
-                className="mt-4 w-full py-3.5 bg-red-600 hover:bg-red-500 active:scale-95 transition-all rounded-2xl font-bold text-white text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 tracking-wider uppercase"
+                className="mt-4 w-full py-3.5 bg-red-600 hover:bg-red-500 active:scale-95 transition-all rounded-2xl font-bold text-white text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 uppercase tracking-wider"
               >
                 <Play className="w-4 h-4 fill-current" /> AVVIA SESSIONE LIVE
               </button>
             </div>
 
-            {/* CONTATORI ATTIVITÀ */}
+            {/* CONTATORI ATTIVITÀ UTENTE */}
             <div className="space-y-3">
               <div className="flex justify-between items-center px-1">
-                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">La Tua Attività</h3>
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">La Tua Attività Reale</h3>
                 <div className="flex bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[10px]">
                   {['giornaliero', 'settimanale', 'mensile'].map((tf) => (
                     <button
@@ -736,7 +909,7 @@ export default function App() {
                   <span className="text-xl font-black text-white font-mono">{filteredLaps.length}</span>
                 </div>
                 <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-2xl text-center shadow-lg">
-                  <span className="text-[9px] uppercase font-bold text-slate-400 block mb-0.5">KM Percorsi</span>
+                  <span className="text-[9px] uppercase font-bold text-slate-400 block mb-0.5">KM Reali</span>
                   <span className="text-xl font-black text-white font-mono">{totalKm} km</span>
                 </div>
                 <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-2xl text-center shadow-lg">
@@ -746,7 +919,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* EVENTI & TORNEI */}
+            {/* EVENTI */}
             <div className="space-y-3">
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Eventi & Challenge</h3>
               <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3 shadow-md">
@@ -767,10 +940,47 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {/* TRATTI CONSIGLIATI */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center px-1">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tratti Consigliati</h3>
+                <button onClick={() => setActiveTab('map')} className="text-xs text-red-400 font-semibold flex items-center">
+                  vedi mappa <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                </button>
+              </div>
+
+              {ROADS_DATABASE.map((road) => (
+                <div 
+                  key={road.id}
+                  onClick={() => {
+                    setSelectedRouteInfo(road);
+                    setSelectedPolyline(road.coords);
+                    setMapCenter(road.coords[0]);
+                    setActiveTab('map');
+                  }}
+                  className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex items-center justify-between cursor-pointer hover:border-slate-700 transition-all shadow-md"
+                >
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-red-500 uppercase tracking-wider">
+                      {road.type} • {road.difficulty}
+                    </span>
+                    <h4 className="text-sm font-bold text-white">{road.name}</h4>
+                    <p className="text-xs text-slate-400">
+                      Lunghezza: {road.lengthKm} km • Dislivello: {road.elevationGain}
+                    </p>
+                  </div>
+                  <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-slate-300 border border-slate-700">
+                    <MapIcon className="w-4 h-4 text-red-500" />
+                  </div>
+                </div>
+              ))}
+            </div>
+
           </div>
         )}
 
-        {/* 2. MAPPA */}
+        {/* 2. MAPPA CON FILTRI A TENDINA COMPLETI */}
         {activeTab === 'map' && (
           <div className="relative h-[calc(100vh-125px)] w-full overflow-hidden">
             <MapContainer center={mapCenter} zoom={mapZoom} scrollWheelZoom={true} className="h-full w-full z-0" zoomControl={false}>
@@ -782,7 +992,8 @@ export default function App() {
               </Marker>
             </MapContainer>
 
-            <div className="absolute top-3 left-3 right-3 z-[1000]">
+            {/* BARRA E FILTRI A TENDINA */}
+            <div className="absolute top-3 left-3 right-3 z-[1000] space-y-2">
               <form onSubmit={handleSearch} className="relative shadow-2xl">
                 <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
                 <input
@@ -796,41 +1007,141 @@ export default function App() {
                   {isSearching ? '...' : 'Cerca'}
                 </button>
               </form>
+
+              {/* BARRA FILTRI STRAVA-STYLE */}
+              <div className="relative">
+                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+                  
+                  <button 
+                    onClick={() => toggleDropdown('percorsi')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap backdrop-blur-md shadow-md transition-all ${filterType !== 'tutti' ? 'bg-red-600 text-white' : 'bg-slate-900/90 border border-slate-700 text-slate-200'}`}
+                  >
+                    <Flame className="w-3.5 h-3.5 fill-current" /> 
+                    {filterType === 'tutti' ? 'Percorsi' : filterType.toUpperCase()}
+                    <ChevronDown className="w-3 h-3 ml-0.5" />
+                  </button>
+
+                  <button 
+                    onClick={() => {
+                      setSortByLength(!sortByLength);
+                      setActiveDropdown(null);
+                    }}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap backdrop-blur-md shadow-md transition-all ${sortByLength ? 'bg-red-600 text-white font-bold' : 'bg-slate-900/90 border border-slate-700 text-slate-200'}`}
+                  >
+                    Lunghezza {sortByLength ? '(Max ➔ Min)' : ''}
+                  </button>
+
+                  <button 
+                    onClick={() => toggleDropdown('difficolta')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap backdrop-blur-md shadow-md transition-all ${filterDiff !== 'tutti' ? 'bg-red-600 text-white' : 'bg-slate-900/90 border border-slate-700 text-slate-200'}`}
+                  >
+                    {filterDiff === 'tutti' ? 'Difficoltà' : filterDiff.toUpperCase()}
+                    <ChevronDown className="w-3 h-3 ml-0.5" />
+                  </button>
+
+                </div>
+
+                {/* TENDINA PERCORSI */}
+                {activeDropdown === 'percorsi' && (
+                  <div className="absolute left-0 top-10 bg-slate-900/95 border border-slate-700 rounded-2xl p-2 w-48 shadow-2xl backdrop-blur-xl z-[1100] space-y-1">
+                    <span className="text-[10px] font-extrabold text-slate-400 px-3 py-1 block uppercase">Tipologia Strada</span>
+                    {[
+                      { id: 'tutti', label: 'Tutti i percorsi' },
+                      { id: 'urbano', label: 'Urbano (Città)' },
+                      { id: 'extraurbano', label: 'Extraurbano (Misto)' },
+                      { id: 'autostrada', label: 'Autostrada (Veloce)' }
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={() => {
+                          setFilterType(opt.id);
+                          setActiveDropdown(null);
+                          const found = ROADS_DATABASE.find(r => opt.id === 'tutti' || r.type === opt.id);
+                          if (found) {
+                            setSelectedPolyline(found.coords);
+                            setSelectedRouteInfo(found);
+                            setMapCenter(found.coords[0]);
+                          }
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs rounded-xl hover:bg-slate-800 text-slate-200 text-left"
+                      >
+                        {opt.label}
+                        {filterType === opt.id && <Check className="w-3.5 h-3.5 text-red-500" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* TENDINA DIFFICOLTÀ */}
+                {activeDropdown === 'difficolta' && (
+                  <div className="absolute left-32 top-10 bg-slate-900/95 border border-slate-700 rounded-2xl p-2 w-52 shadow-2xl backdrop-blur-xl z-[1100] space-y-1">
+                    <span className="text-[10px] font-extrabold text-slate-400 px-3 py-1 block uppercase">Grado Curvatura</span>
+                    {[
+                      { id: 'tutti', label: 'Tutte le difficoltà' },
+                      { id: 'facile', label: 'Facile (Poche curve)' },
+                      { id: 'media', label: 'Media (Misto Guidato)' },
+                      { id: 'difficile', label: 'Difficile (Molte curve)' }
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={() => {
+                          setFilterDiff(opt.id);
+                          setActiveDropdown(null);
+                          const found = ROADS_DATABASE.find(r => opt.id === 'tutti' || r.difficulty === opt.id);
+                          if (found) {
+                            setSelectedPolyline(found.coords);
+                            setSelectedRouteInfo(found);
+                            setMapCenter(found.coords[0]);
+                          }
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs rounded-xl hover:bg-slate-800 text-slate-200 text-left"
+                      >
+                        {opt.label}
+                        {filterDiff === opt.id && <Check className="w-3.5 h-3.5 text-red-500" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <button 
               onClick={() => { setMapCenter(userLocation); setMapZoom(14); setSearchTitle('Posizione Attuale'); }}
-              className="absolute right-4 top-20 z-[1000] w-10 h-10 bg-slate-900/90 border border-slate-700 rounded-full flex items-center justify-center shadow-xl text-slate-200"
+              className="absolute right-4 top-32 z-[1000] w-10 h-10 bg-slate-900/90 border border-slate-700 rounded-full flex items-center justify-center shadow-xl text-slate-200"
             >
               <Crosshair className="w-5 h-5 text-red-500" />
             </button>
           </div>
         )}
 
-        {/* 3. TELEMETRIA LIVE GPS */}
+        {/* 3. TELEMETRIA LIVE GPS REAL-TIME */}
         {activeTab === 'live' && (
           <div className="p-4 space-y-6 text-center py-6">
             <div className="inline-flex items-center gap-2 bg-slate-900 border border-slate-800 px-4 py-1.5 rounded-full">
               <div className={`w-2.5 h-2.5 rounded-full ${isRecording ? 'bg-red-500 animate-ping' : 'bg-slate-500'}`}></div>
               <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">
-                {isRecording ? `${currentUser?.username} @ ${currentUser?.activeCar || 'Auto'}` : 'Pronto al Via'}
+                {isRecording ? `${currentUser?.username} @ ${currentUser?.activeCar}` : 'Pronto al Via'}
               </span>
             </div>
 
             <div className="relative w-60 h-60 mx-auto bg-slate-900/90 rounded-full border-4 border-slate-800 flex flex-col items-center justify-center shadow-2xl">
-              <Gauge className="w-7 h-7 text-red-500 mb-1" />
+              <Gauge className="w-6 h-6 text-red-500 mb-1" />
               <span className="text-7xl font-black text-white font-mono tracking-tighter">{speed}</span>
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">KM/H REAL-TIME</span>
             </div>
 
-            <div className="bg-slate-900 p-4 rounded-3xl border border-slate-800 max-w-sm mx-auto grid grid-cols-2 gap-4">
-              <div className="border-r border-slate-800 pr-2">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Tempo</span>
-                <span className="text-2xl font-black text-white font-mono">{formatTime(elapsedTime)}</span>
+            <div className="bg-slate-900 p-4 rounded-3xl border border-slate-800 max-w-sm mx-auto grid grid-cols-3 gap-2 text-center">
+              <div className="border-r border-slate-800 pr-1">
+                <span className="text-[9px] font-bold text-slate-400 block uppercase">Tempo</span>
+                <span className="text-lg font-black text-white font-mono">{formatTime(elapsedTime)}</span>
               </div>
-              <div className="pl-2">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Auto in Uso</span>
-                <span className="text-xs font-bold text-amber-400 truncate block mt-2">{currentUser?.activeCar || 'Nessuna'}</span>
+              <div className="border-r border-slate-800 pr-1">
+                <span className="text-[9px] font-bold text-slate-400 block uppercase">Distanza</span>
+                <span className="text-lg font-black text-white font-mono">{distanceKm} km</span>
+              </div>
+              <div>
+                <span className="text-[9px] font-bold text-slate-400 block uppercase">Forza G</span>
+                <span className="text-lg font-black text-red-500 font-mono">{maxGForce} G</span>
               </div>
             </div>
 
@@ -840,60 +1151,71 @@ export default function App() {
                   onClick={handleStartRecordingClick}
                   className="w-full py-4 bg-red-600 hover:bg-red-500 rounded-2xl font-black text-white text-base tracking-wider flex items-center justify-center gap-2 shadow-xl shadow-red-600/30"
                 >
-                  <Play className="w-5 h-5 fill-current" /> AVVIA TRACCIAMENTO
+                  <Play className="w-5 h-5 fill-current" /> AVVIA TRACCIAMENTO GPS
                 </button>
               ) : (
                 <button
                   onClick={handleStopRecording}
                   className="w-full py-4 bg-slate-800 border border-slate-700 rounded-2xl font-black text-red-500 text-base tracking-wider flex items-center justify-center gap-2 shadow-xl"
                 >
-                  <Square className="w-5 h-5 fill-current" /> SALVA & FERMA SESSIONE
+                  <Square className="w-5 h-5 fill-current" /> SALVA SESSIONE REALE
                 </button>
               )}
             </div>
           </div>
         )}
 
-        {/* 4. CLASSIFICA */}
+        {/* 4. CLASSIFICHE DIVISE PER CHILOMETRAGGIO/SETTORE */}
         {activeTab === 'leaderboard' && (
           <div className="p-4 space-y-4">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-amber-400" /> Classifica Tempi Personali
+              <Trophy className="w-5 h-5 text-amber-400" /> Classifiche per Settore Reale
             </h2>
 
             {userLaps.length === 0 ? (
               <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 text-center space-y-1">
-                <p className="text-xs text-slate-300 font-bold">Nessun tempo registrato</p>
-                <p className="text-[11px] text-slate-500">Avvia una sessione LIVE per registrare i tuoi tempi!</p>
+                <p className="text-xs text-slate-300 font-bold">Nessun giro registrato</p>
+                <p className="text-[11px] text-slate-500">Avvia il GPS e percorri un tratto per entrare in classifica!</p>
               </div>
             ) : (
-              <div className="bg-slate-900 rounded-3xl border border-slate-800 divide-y divide-slate-800 shadow-xl overflow-hidden">
-                {[...userLaps]
-                  .sort((a, b) => a.durationSeconds - b.durationSeconds)
-                  .map((lap, idx) => (
-                    <div key={lap.id} className="p-4 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${idx === 0 ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
-                          #{idx + 1}
-                        </span>
-                        <div>
-                          <h4 className="text-sm font-bold text-white">@{lap.userName}</h4>
-                          <p className="text-xs text-slate-400">{lap.userCar} • {lap.date}</p>
+              Object.keys(groupedLapsBySector).map((sectorName) => (
+                <div key={sectorName} className="space-y-2">
+                  <span className="text-xs font-bold text-red-500 uppercase tracking-wider block px-1">
+                    {sectorName}
+                  </span>
+                  
+                  <div className="bg-slate-900 rounded-3xl border border-slate-800 divide-y divide-slate-800 shadow-xl overflow-hidden">
+                    {groupedLapsBySector[sectorName]
+                      .sort((a, b) => a.durationSeconds - b.durationSeconds)
+                      .map((lap, idx) => (
+                        <div 
+                          key={lap.id} 
+                          onClick={() => setSelectedLapDetail(lap)}
+                          className="p-4 flex items-center justify-between cursor-pointer hover:bg-slate-800/60 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${idx === 0 ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
+                              #{idx + 1}
+                            </span>
+                            <div>
+                              <h4 className="text-sm font-bold text-white">@{lap.userName}</h4>
+                              <p className="text-xs text-slate-400">{lap.userCar} • {lap.kmDistance} km</p>
+                            </div>
+                          </div>
+                          <span className="font-mono text-sm font-bold text-amber-400">{lap.timeFormatted}</span>
                         </div>
-                      </div>
-                      <span className="font-mono text-sm font-bold text-amber-400">{lap.timeFormatted}</span>
-                    </div>
-                  ))}
-              </div>
+                      ))}
+                  </div>
+                </div>
+              ))
             )}
           </div>
         )}
 
-        {/* 5. FEED: AGGIUNGI AMICI, VISTA PERSONALE VS GRUPPI / TORNEI */}
+        {/* 5. FEED: CERCHIA AMICI & TORNEI */}
         {activeTab === 'feed' && (
           <div className="p-4 space-y-4">
             
-            {/* SUB-TABS: PERSONALE VS GRUPPI / TORNEI */}
             <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800">
               <button
                 onClick={() => setFeedSubTab('personale')}
@@ -909,17 +1231,16 @@ export default function App() {
               </button>
             </div>
 
-            {/* SEZIONE 1: PERSONALE & TROFEI */}
             {feedSubTab === 'personale' && (
               <div className="space-y-4">
                 
-                {/* BARRA PER CERCARE E AGGIUNGERE AMICI TRAMITE USERNAME */}
+                {/* RICERCA E AGGIUNTA AMICO */}
                 <form onSubmit={handleAddFriend} className="bg-slate-900 p-3 rounded-2xl border border-slate-800 space-y-2">
                   <span className="text-[10px] font-extrabold text-slate-400 uppercase block">Cerca Amico per Username</span>
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      placeholder="Username esatto dell'amico..."
+                      placeholder="Username dell'amico..."
                       value={searchFriendQuery}
                       onChange={(e) => setSearchFriendQuery(e.target.value)}
                       className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
@@ -930,7 +1251,7 @@ export default function App() {
                   </div>
                 </form>
 
-                {/* CERCHIA DI AMICI */}
+                {/* LISTA AMICI */}
                 {friendsList.length > 0 && (
                   <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-2">
                     <span className="text-[10px] font-extrabold text-red-500 uppercase tracking-wider block">La tua Cerchia Amici</span>
@@ -944,40 +1265,49 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TROFEI E STATS PERSONALI */}
-                <div className="bg-slate-900 p-4 rounded-3xl border border-slate-800 space-y-3">
-                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                    <Award className="w-4 h-4 text-amber-400" /> I Tuoi Trofei Personali
-                  </h3>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-center">
-                      <span className="text-[9px] font-bold text-slate-400 block uppercase">Trofeo Velocità</span>
-                      <span className="text-sm font-bold text-amber-400">{maxSpeed} km/h Max</span>
+                {/* REGISTRO ATTIVITÀ CLICCABILE */}
+                <div className="space-y-3">
+                  {userLaps.length === 0 ? (
+                    <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 text-center">
+                      <p className="text-xs text-slate-400">Nessuna attività registrata per il tuo account.</p>
                     </div>
-                    <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-center">
-                      <span className="text-[9px] font-bold text-slate-400 block uppercase">Sessioni Salvate</span>
-                      <span className="text-sm font-bold text-white">{userLaps.length} Totali</span>
-                    </div>
-                  </div>
+                  ) : (
+                    userLaps.map((lap) => (
+                      <div 
+                        key={lap.id} 
+                        onClick={() => setSelectedLapDetail(lap)}
+                        className="bg-slate-900 p-4 rounded-3xl border border-slate-800 space-y-2 cursor-pointer hover:border-slate-700 transition-colors"
+                      >
+                        <div className="flex justify-between items-start">
+                          <span className="text-xs font-bold text-white">@{lap.userName} ({lap.userCar})</span>
+                          <span className="text-[10px] text-slate-500">{lap.date}</span>
+                        </div>
+                        <p className="text-xs text-slate-300">Ha completato un percorso di {lap.kmDistance} km.</p>
+                        <div className="flex justify-between items-center text-[10px] text-red-400 font-semibold pt-1">
+                          <span>Tempo: {lap.timeFormatted}</span>
+                          <span>Vel. Media: {lap.avgSpeed || 48} km/h</span>
+                          <span className="text-amber-400 font-bold">Vedi Report ➔</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
 
               </div>
             )}
 
-            {/* SEZIONE 2: GRUPPI & TORNEI A TEMPO */}
             {feedSubTab === 'gruppi' && (
               <div className="space-y-4">
                 <div className="bg-slate-900 p-4 rounded-3xl border border-slate-800 space-y-3">
                   <div className="flex justify-between items-center">
                     <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                      <Users className="w-4 h-4 text-red-500" /> Torneo Prova a Tempo Notturno
+                      <Users className="w-4 h-4 text-red-500" /> Torneo Prova a Tempo
                     </h3>
                     <span className="bg-red-600/20 text-red-400 text-[9px] font-extrabold px-2 py-0.5 rounded-full border border-red-500/30">
                       IN CORSO
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400">Gara a tempo tra i membri dei gruppi sulla tratta urbana. Chi realizza il miglior giro entro domenica vince il badge!</p>
+                  <p className="text-xs text-slate-400">Gara a tempo sui percorsi liberi. Realizza il miglior tempo della settimana!</p>
                   
                   <button onClick={handleStartRecordingClick} className="w-full py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-xs shadow-md">
                     Partecipa Ora alla Prova a Tempo
