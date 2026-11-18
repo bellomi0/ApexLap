@@ -13,17 +13,16 @@ import {
   Square, 
   Gauge, 
   Crosshair,
-  LogIn,
-  UserPlus,
   LogOut,
-  Mail,
-  Lock,
   Car,
   Activity,
   Plus,
   CheckCircle2,
-  Camera,
-  ShieldAlert
+  Calendar,
+  ChevronRight,
+  X,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 
 const customIcon = new L.Icon({
@@ -36,12 +35,10 @@ const customIcon = new L.Icon({
   shadowSize: [41, 41]
 });
 
-// Avatar predefiniti di default
-const DEFAULT_AVATARS = [
+// Avatar predefiniti: Solo Casco e Auto (oltre all'opzione Foto Bianca)
+const PRESET_AVATARS = [
   { id: 'helmet', name: 'Casco', url: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=150&auto=format&fit=crop&q=80' },
-  { id: 'driver', name: 'Pilota', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80' },
-  { id: 'car', name: 'Auto Sportiva', url: 'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?w=150&auto=format&fit=crop&q=80' },
-  { id: 'steering', name: 'Volante', url: 'https://images.unsplash.com/photo-1541348263662-e082662d82da?w=150&auto=format&fit=crop&q=80' }
+  { id: 'car', name: 'Auto', url: 'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?w=150&auto=format&fit=crop&q=80' }
 ];
 
 function ControllerMappa({ center, zoom }) {
@@ -64,19 +61,23 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
 
-  // Modal & Form Auth
+  // Modal Profile & Auth
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [fullNameInput, setFullNameInput] = useState('');
   const [usernameInput, setUsernameInput] = useState('');
-  const [avatarUrlInput, setAvatarUrlInput] = useState(DEFAULT_AVATARS[0].url);
+  const [avatarUrlInput, setAvatarUrlInput] = useState(''); // Vuoto di default = Foto bianca
 
-  // Gestione Garage
+  // Garage Modal
   const [newCarName, setNewCarName] = useState('');
   const [showAddCarModal, setShowAddCarModal] = useState(false);
 
-  // Telemetria GPS
+  // Selettore Statistiche Home
+  const [statsTimeframe, setStatsTimeframe] = useState('settimanale');
+
+  // Telemetria GPS Live
   const [speed, setSpeed] = useState(0);
   const [maxSpeed, setMaxSpeed] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
@@ -140,7 +141,19 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isRecording]);
 
-  // Auth: Registrazione / Login
+  // Caricamento foto dal dispositivo del telefono/PC
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setAvatarUrlInput(reader.result); // Converte l'immagine locale in formato visibile
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Login / Registrazione
   const handleAuthSubmit = (e) => {
     e.preventDefault();
     if (!emailInput || !passwordInput) return;
@@ -151,11 +164,11 @@ export default function App() {
     if (isRegisterMode) {
       const newUser = {
         email: emailKey,
-        fullName: fullNameInput || 'Pilota Apex',
-        username: usernameInput || 'Driver',
-        avatarUrl: avatarUrlInput,
-        garage: ['Ford Puma', 'Lancia Ypsilon'], // Auto iniziali di esempio nel garage
-        activeCar: 'Ford Puma',
+        fullName: fullNameInput || 'Nome Cognome',
+        username: usernameInput || 'UserPilota',
+        avatarUrl: avatarUrlInput, // Può essere stringa vuota (foto bianca)
+        garage: [],
+        activeCar: 'Nessuna Auto',
         joinedAt: new Date().toLocaleDateString('it-IT')
       };
       
@@ -176,9 +189,9 @@ export default function App() {
     setCurrentUser(null);
     setEmailInput('');
     setPasswordInput('');
+    setShowProfileModal(false);
   };
 
-  // Aggiungi nuova auto al Garage
   const handleAddCar = (e) => {
     e.preventDefault();
     if (!newCarName.trim()) return;
@@ -187,12 +200,11 @@ export default function App() {
     const updatedUser = { 
       ...currentUser, 
       garage: updatedGarage,
-      activeCar: currentUser.activeCar || newCarName.trim()
+      activeCar: currentUser.activeCar === 'Nessuna Auto' ? newCarName.trim() : currentUser.activeCar
     };
 
     setCurrentUser(updatedUser);
     
-    // Aggiorna anche DB locale
     const usersDB = JSON.parse(localStorage.getItem('apexlap_all_users') || '{}');
     if (usersDB[currentUser.email]) {
       usersDB[currentUser.email] = { ...usersDB[currentUser.email], ...updatedUser };
@@ -203,7 +215,6 @@ export default function App() {
     setShowAddCarModal(false);
   };
 
-  // Seleziona auto attiva dal Garage
   const handleSelectActiveCar = (carName) => {
     const updatedUser = { ...currentUser, activeCar: carName };
     setCurrentUser(updatedUser);
@@ -215,26 +226,27 @@ export default function App() {
     }
   };
 
-  // Salvataggio Giro
   const handleStopRecording = () => {
     setIsRecording(false);
     if (elapsedTime > 3 && currentUser) {
       const newLap = {
         id: Date.now(),
+        timestamp: Date.now(),
         userEmail: currentUser.email,
         userName: currentUser.username || currentUser.fullName,
-        userCar: currentUser.activeCar || 'Auto Sconosciuta',
+        userCar: currentUser.activeCar || 'Auto Generica',
         date: new Date().toLocaleDateString('it-IT'),
         timeFormatted: formatTime(elapsedTime),
         durationSeconds: elapsedTime,
         maxSpeed: maxSpeed,
+        estimatedKm: ((maxSpeed > 0 ? maxSpeed : 45) * (elapsedTime / 3600)).toFixed(1),
         location: searchTitle
       };
       
       const updated = [newLap, ...userLaps];
       setUserLaps(updated);
       localStorage.setItem(`apexlap_laps_${currentUser.email}`, JSON.stringify(updated));
-      alert(`Giro salvato per ${currentUser.username} con ${currentUser.activeCar}! Tempo: ${formatTime(elapsedTime)}`);
+      alert(`Giro registrato nel tuo database! Tempo: ${formatTime(elapsedTime)}`);
     }
     setElapsedTime(0);
   };
@@ -269,10 +281,38 @@ export default function App() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // REGISTRAZIONE / LOGIN FORM
+  const getFilteredLaps = () => {
+    const now = Date.now();
+    const oneDay = 86400000;
+    if (statsTimeframe === 'giornaliero') {
+      return userLaps.filter(l => (now - l.timestamp) <= oneDay);
+    } else if (statsTimeframe === 'settimanale') {
+      return userLaps.filter(l => (now - l.timestamp) <= oneDay * 7);
+    } else {
+      return userLaps.filter(l => (now - l.timestamp) <= oneDay * 30);
+    }
+  };
+
+  const filteredLaps = getFilteredLaps();
+  const totalKm = filteredLaps.reduce((acc, curr) => acc + parseFloat(curr.estimatedKm || 0), 0).toFixed(1);
+  const totalHours = (filteredLaps.reduce((acc, curr) => acc + curr.durationSeconds, 0) / 3600).toFixed(1);
+
+  // Render per la foto profilo o sagoma bianca predefinita
+  const renderAvatarImage = (url, sizeClasses = "w-8 h-8") => {
+    if (url) {
+      return <img src={url} alt="Avatar" className={`${sizeClasses} rounded-full object-cover border border-slate-700`} />;
+    }
+    return (
+      <div className={`${sizeClasses} rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300`}>
+        <User className="w-[60%] h-[60%]" />
+      </div>
+    );
+  };
+
+  // FORM LOGIN / REGISTRAZIONE
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex items-center justify-center p-4">
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex items-center justify-center p-4 select-none">
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm space-y-5 shadow-2xl relative">
           
           <div className="text-center space-y-1">
@@ -280,10 +320,10 @@ export default function App() {
               <Zap className="w-7 h-7 text-white fill-current" />
             </div>
             <h1 className="text-xl font-black italic bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-              APEXLAP ACCOUNT
+              APEXLAP
             </h1>
             <p className="text-xs text-slate-400">
-              {isRegisterMode ? 'Crea il tuo profilo ed imposta le tue auto' : 'Accedi al tuo account personalizzato'}
+              {isRegisterMode ? 'Crea il tuo profilo utente (Foto Facoltativa)' : 'Accedi al tuo account'}
             </p>
           </div>
 
@@ -294,7 +334,7 @@ export default function App() {
                   <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Nome e Cognome</label>
                   <input
                     type="text"
-                    placeholder="Es. Andrea Margarini"
+                    placeholder="Es. Nome Cognome"
                     value={fullNameInput}
                     onChange={(e) => setFullNameInput(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
@@ -303,10 +343,10 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Username / Soprannome</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Username / Nickname</label>
                   <input
                     type="text"
-                    placeholder="Es. AndreaApex"
+                    placeholder="Es. Pilota01"
                     value={usernameInput}
                     onChange={(e) => setUsernameInput(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
@@ -314,28 +354,44 @@ export default function App() {
                   />
                 </div>
 
-                {/* SCELTA AVATAR / FOTO PROFILO */}
-                <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Scegli Avatar o Inserisci URL Foto</label>
-                  <div className="grid grid-cols-4 gap-2 mb-2">
-                    {DEFAULT_AVATARS.map((av) => (
+                {/* SCELTA FOTO PROFILO / UPLOAD / BIANCA */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block">Foto Profilo (Opzionale)</label>
+
+                  {/* CARICAMENTO FILE DAL TELEFONO / PC */}
+                  <label className="flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl p-2.5 cursor-pointer transition-colors text-xs text-slate-300">
+                    <Upload className="w-4 h-4 text-red-500" />
+                    <span className="font-semibold">Carica Foto dal Dispositivo</span>
+                    <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+                  </label>
+
+                  {/* ANTEPRIME PREDEFINITE: CASCO, AUTO O BIANCA */}
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    {/* OPZIONE 1: FOTO BIANCA */}
+                    <button
+                      type="button"
+                      onClick={() => setAvatarUrlInput('')}
+                      className={`h-12 rounded-xl border flex flex-col items-center justify-center gap-0.5 bg-slate-950 transition-all ${avatarUrlInput === '' ? 'border-red-500 text-white font-bold' : 'border-slate-800 text-slate-500'}`}
+                    >
+                      <User className="w-4 h-4" />
+                      <span className="text-[9px]">Nessuna (Bianca)</span>
+                    </button>
+
+                    {/* OPZIONE 2 & 3: CASCO E AUTO */}
+                    {PRESET_AVATARS.map((av) => (
                       <button
                         key={av.id}
                         type="button"
                         onClick={() => setAvatarUrlInput(av.url)}
-                        className={`relative rounded-xl overflow-hidden border-2 h-12 transition-all ${avatarUrlInput === av.url ? 'border-red-500 scale-105 shadow-md' : 'border-slate-800 opacity-60'}`}
+                        className={`relative rounded-xl overflow-hidden border h-12 transition-all ${avatarUrlInput === av.url ? 'border-red-500 scale-105 shadow-md' : 'border-slate-800 opacity-60'}`}
                       >
                         <img src={av.url} alt={av.name} className="w-full h-full object-cover" />
+                        <span className="absolute bottom-0 inset-x-0 bg-slate-950/80 text-[8px] text-center text-slate-200 py-0.5 font-bold">
+                          {av.name}
+                        </span>
                       </button>
                     ))}
                   </div>
-                  <input
-                    type="url"
-                    placeholder="Oppure incolla URL foto personalizzata..."
-                    value={avatarUrlInput}
-                    onChange={(e) => setAvatarUrlInput(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-[11px] text-white focus:outline-none focus:border-red-500"
-                  />
                 </div>
               </>
             )}
@@ -344,7 +400,7 @@ export default function App() {
               <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Email</label>
               <input
                 type="email"
-                placeholder="nome@email.com"
+                placeholder="utente@email.com"
                 value={emailInput}
                 onChange={(e) => setEmailInput(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
@@ -368,7 +424,7 @@ export default function App() {
               type="submit"
               className="w-full py-3 bg-red-600 hover:bg-red-500 rounded-xl font-bold text-white text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 uppercase tracking-wider mt-2"
             >
-              {isRegisterMode ? 'CREA ACCOUNT' : 'ACCEDI'}
+              {isRegisterMode ? 'REGISTRATI' : 'ACCEDI'}
             </button>
           </form>
 
@@ -395,170 +451,245 @@ export default function App() {
           <div className="w-8 h-8 bg-red-600 rounded-xl flex items-center justify-center shadow-lg shadow-red-600/30">
             <Zap className="w-4 h-4 text-white fill-current" />
           </div>
-          <h1 className="text-lg font-black tracking-wider bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent italic">
-            APEXLAP
-          </h1>
+          <div>
+            <h1 className="text-lg font-black tracking-wider bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent italic">
+              APEXLAP
+            </h1>
+            <p className="text-[9px] text-red-500 font-black tracking-widest uppercase -mt-1">
+              PURE TRACK TELEMETRY
+            </p>
+          </div>
         </div>
 
-        {/* PROFILO UTENTE IN ALTO */}
-        <div className="flex items-center gap-2.5">
-          <img 
-            src={currentUser.avatarUrl || DEFAULT_AVATARS[0].url} 
-            alt="Avatar" 
-            className="w-8 h-8 rounded-full object-cover border border-red-500/50 shadow-md"
-          />
-          <div className="text-right">
-            <span className="text-xs font-bold text-white block -mb-0.5">{currentUser.username || currentUser.fullName}</span>
-            <span className="text-[9px] text-red-400 font-bold uppercase">{currentUser.activeCar || 'Nessuna Auto'}</span>
-          </div>
-          <button 
-            onClick={handleLogout}
-            title="Disconnetti"
-            className="w-7 h-7 bg-slate-800 hover:bg-red-950/50 text-slate-400 hover:text-red-400 rounded-full flex items-center justify-center border border-slate-700 transition-colors ml-1"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-          </button>
-        </div>
+        {/* PULSANTE PROFILO IN ALTO */}
+        <button 
+          onClick={() => setShowProfileModal(true)}
+          className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 p-1.5 pr-3 rounded-full border border-slate-700 transition-all active:scale-95"
+        >
+          {renderAvatarImage(currentUser.avatarUrl, "w-6 h-6")}
+          <span className="text-xs font-bold text-slate-200 truncate max-w-[80px]">
+            {currentUser.username || 'Profilo'}
+          </span>
+        </button>
       </header>
 
-      {/* CONTENUTO PRINCIPALE */}
-      <main className="max-w-md mx-auto">
-
-        {/* 1. HOME DASHBOARD CON GARAGE PILOTA */}
-        {activeTab === 'home' && (
-          <div className="p-4 space-y-5">
+      {/* MODAL PROFILO & GARAGE */}
+      {showProfileModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[2000] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm space-y-5 shadow-2xl relative max-h-[90vh] overflow-y-auto">
             
-            {/* CARD PROFILO UTENTE */}
-            <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-red-950/50 p-5 rounded-3xl border border-slate-800 shadow-2xl flex items-center gap-4">
-              <img 
-                src={currentUser.avatarUrl || DEFAULT_AVATARS[0].url} 
-                alt="Avatar" 
-                className="w-16 h-16 rounded-2xl object-cover border-2 border-red-500 shadow-lg"
-              />
-              <div className="space-y-1">
-                <span className="text-[10px] font-extrabold text-red-500 uppercase tracking-wider">Pilota Verificato</span>
-                <h2 className="text-lg font-bold text-white leading-tight">{currentUser.fullName}</h2>
+            <button 
+              onClick={() => setShowProfileModal(false)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-2">
+              <div className="mx-auto w-20 h-20 flex items-center justify-center">
+                {renderAvatarImage(currentUser.avatarUrl, "w-20 h-20 border-2 border-red-500 shadow-xl")}
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">{currentUser.fullName}</h3>
                 <p className="text-xs text-slate-400">@{currentUser.username}</p>
-                <div className="inline-block px-2 py-0.5 bg-slate-800 border border-slate-700 rounded-full text-[10px] text-amber-400 font-bold">
-                  Auto Attiva: {currentUser.activeCar || 'Nessuna'}
-                </div>
+                <span className="text-[10px] text-slate-500 block mt-0.5">{currentUser.email}</span>
               </div>
             </div>
 
-            {/* SEZIONE GARAGE PILOTA (SELEZIONA L'AUTO DEL GIORNO) */}
-            <div className="bg-slate-900 p-4 rounded-3xl border border-slate-800 space-y-3 shadow-xl">
+            {/* GARAGE */}
+            <div className="bg-slate-950/80 p-4 rounded-2xl border border-slate-800 space-y-3">
               <div className="flex justify-between items-center">
-                <div>
-                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                    <Car className="w-4 h-4 text-red-500" /> Il Tuo Garage
-                  </h3>
-                  <p className="text-[10px] text-slate-400">Scegli l'auto che guidi oggi per registrare i tuoi tempi.</p>
-                </div>
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                  <Car className="w-4 h-4 text-red-500" /> Il Tuo Garage
+                </h4>
                 <button 
                   onClick={() => setShowAddCarModal(true)}
-                  className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-md"
+                  className="px-2 py-1 bg-red-600 text-white rounded-lg text-[10px] font-bold flex items-center gap-1"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Aggiungi Auto
+                  <Plus className="w-3 h-3" /> Aggiungi Auto
                 </button>
               </div>
 
-              {/* LISTA AUTO NEL GARAGE */}
-              <div className="space-y-2 pt-1">
-                {(currentUser.garage || []).map((car, idx) => {
-                  const isActive = currentUser.activeCar === car;
-                  return (
-                    <div 
-                      key={idx}
-                      onClick={() => handleSelectActiveCar(car)}
-                      className={`p-3 rounded-2xl border flex items-center justify-between cursor-pointer transition-all ${
-                        isActive 
-                          ? 'bg-red-950/30 border-red-500/80 text-white shadow-md' 
-                          : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Car className={`w-4 h-4 ${isActive ? 'text-red-500' : 'text-slate-500'}`} />
-                        <span className="text-xs font-bold">{car}</span>
-                      </div>
-                      {isActive && (
-                        <span className="text-[10px] font-extrabold text-red-400 flex items-center gap-1 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-500/20">
-                          <CheckCircle2 className="w-3 h-3" /> In Uso Oggi
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* AVVIO QUICK SESSION */}
-            <button 
-              onClick={() => setActiveTab('live')} 
-              className="w-full py-3.5 bg-red-600 hover:bg-red-500 rounded-2xl font-bold text-white text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 uppercase tracking-wider"
-            >
-              <Play className="w-4 h-4 fill-current" /> AVVIA SESSIONE LIVE ({currentUser.activeCar})
-            </button>
-
-            {/* STORICO PERSONALE */}
-            <div className="space-y-3">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Tempi Registrati da {currentUser.username}</h3>
-              {userLaps.length === 0 ? (
-                <div className="bg-slate-900 p-5 rounded-3xl border border-slate-800 text-center">
-                  <p className="text-xs text-slate-400">Nessun tempo nel database per {currentUser.username}. Avvia la telemetria GPS!</p>
-                </div>
+              {(currentUser.garage || []).length === 0 ? (
+                <p className="text-[11px] text-slate-500 text-center py-2">Nessun veicolo nel garage. Aggiungine uno!</p>
               ) : (
-                <div className="space-y-2">
-                  {userLaps.map((lap) => (
-                    <div key={lap.id} className="bg-slate-900 p-3.5 rounded-2xl border border-slate-800 flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-bold text-white">{lap.location}</span>
-                        <span className="text-[10px] text-slate-400 block">{lap.userCar} • {lap.date} • Max {lap.maxSpeed} km/h</span>
+                <div className="space-y-1.5">
+                  {(currentUser.garage || []).map((car, idx) => {
+                    const isActive = currentUser.activeCar === car;
+                    return (
+                      <div 
+                        key={idx}
+                        onClick={() => handleSelectActiveCar(car)}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer text-xs ${
+                          isActive 
+                            ? 'bg-red-950/40 border-red-500/80 text-white font-bold' 
+                            : 'bg-slate-900 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        <span>{car}</span>
+                        {isActive && <CheckCircle2 className="w-4 h-4 text-red-500" />}
                       </div>
-                      <span className="font-mono text-sm font-bold text-amber-400">{lap.timeFormatted}</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-          </div>
-        )}
+            <button
+              onClick={handleLogout}
+              className="w-full py-3 bg-slate-800 hover:bg-red-950/60 hover:text-red-400 text-slate-300 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-slate-700 transition-colors"
+            >
+              <LogOut className="w-4 h-4" /> DISCONNETTI ACCOUNT
+            </button>
 
-        {/* MODAL NUOVA AUTO IN GARAGE */}
-        {showAddCarModal && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[2000] flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 w-full max-w-sm space-y-4 shadow-2xl">
-              <h3 className="text-base font-bold text-white">Aggiungi Veicolo al Garage</h3>
-              <form onSubmit={handleAddCar} className="space-y-3">
-                <input 
-                  type="text"
-                  placeholder="Es. Lancia Ypsilon, Ford Puma..."
-                  value={newCarName}
-                  onChange={(e) => setNewCarName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
-                  required
-                />
-                <div className="flex gap-2">
-                  <button 
-                    type="button" 
-                    onClick={() => setShowAddCarModal(false)}
-                    className="w-1/2 py-2.5 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold"
-                  >
-                    Annulla
-                  </button>
-                  <button 
-                    type="submit" 
-                    className="w-1/2 py-2.5 bg-red-600 text-white rounded-xl text-xs font-bold shadow-md"
-                  >
-                    Aggiungi
-                  </button>
-                </div>
-              </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL NUOVA AUTO */}
+      {showAddCarModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[2100] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 w-full max-w-sm space-y-4 shadow-2xl">
+            <h3 className="text-sm font-bold text-white">Aggiungi Veicolo al Garage</h3>
+            <form onSubmit={handleAddCar} className="space-y-3">
+              <input 
+                type="text"
+                placeholder="Nome veicolo..."
+                value={newCarName}
+                onChange={(e) => setNewCarName(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
+                required
+              />
+              <div className="flex gap-2">
+                <button 
+                  type="button" 
+                  onClick={() => setShowAddCarModal(false)}
+                  className="w-1/2 py-2.5 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold"
+                >
+                  Annulla
+                </button>
+                <button 
+                  type="submit" 
+                  className="w-1/2 py-2.5 bg-red-600 text-white rounded-xl text-xs font-bold shadow-md"
+                >
+                  Aggiungi
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONTENUTO PRINCIPALE */}
+      <main className="max-w-md mx-auto">
+
+        {/* 1. HOME DASHBOARD */}
+        {activeTab === 'home' && (
+          <div className="p-4 space-y-5">
+            
+            <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-red-950/50 p-5 rounded-3xl border border-slate-800/80 shadow-2xl relative overflow-hidden">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                <span className="text-xs font-bold text-red-500 tracking-wider uppercase">Dashboard Pilota</span>
+              </div>
+              <h2 className="text-xl font-bold text-white">Pronto per il prossimo settore?</h2>
+              <p className="text-xs text-slate-400 mt-1">Scegli una rotta sulla mappa o avvia subito la telemetria GPS dal vivo.</p>
+              
+              <button 
+                onClick={() => setActiveTab('live')} 
+                className="mt-4 w-full py-3.5 bg-red-600 hover:bg-red-500 active:scale-95 transition-all rounded-2xl font-bold text-white text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 tracking-wider uppercase"
+              >
+                <Play className="w-4 h-4 fill-current" /> AVVIA SESSIONE LIVE
+              </button>
             </div>
+
+            {/* CONTATORI ATTIVITÀ */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center px-1">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">La Tua Attività</h3>
+                
+                <div className="flex bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[10px]">
+                  {['giornaliero', 'settimanale', 'mensile'].map((tf) => (
+                    <button
+                      key={tf}
+                      onClick={() => setStatsTimeframe(tf)}
+                      className={`px-2 py-1 rounded-lg capitalize font-bold transition-colors ${statsTimeframe === tf ? 'bg-red-600 text-white' : 'text-slate-400'}`}
+                    >
+                      {tf}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-2xl text-center shadow-lg">
+                  <span className="text-[9px] uppercase font-bold text-slate-400 block mb-0.5">Giri Totali</span>
+                  <span className="text-xl font-black text-white font-mono">{filteredLaps.length}</span>
+                </div>
+                <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-2xl text-center shadow-lg">
+                  <span className="text-[9px] uppercase font-bold text-slate-400 block mb-0.5">KM Percorsi</span>
+                  <span className="text-xl font-black text-white font-mono">{totalKm} km</span>
+                </div>
+                <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-2xl text-center shadow-lg">
+                  <span className="text-[9px] uppercase font-bold text-slate-400 block mb-0.5">Ore Guida</span>
+                  <span className="text-xl font-black text-amber-400 font-mono">{totalHours}h</span>
+                </div>
+              </div>
+            </div>
+
+            {/* EVENTI */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Eventi & Challenge</h3>
+              <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3 shadow-md">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold text-red-500 uppercase flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5" /> Evento della Settimana
+                  </span>
+                  <span className="bg-red-600/20 text-red-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-red-500/30">
+                    ATTIVO
+                  </span>
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white">Challenge Sprint Notturno</h4>
+                  <p className="text-xs text-slate-400 mt-0.5">Registra una sessione tra le 20:00 e le 02:00 su tratto extraurbano.</p>
+                </div>
+                <button 
+                  onClick={() => setActiveTab('map')} 
+                  className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1"
+                >
+                  Partecipa all'Evento <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* TRATTI CONSIGLIATI */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center px-1">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tratti Consigliati</h3>
+                <button onClick={() => setActiveTab('map')} className="text-xs text-red-400 font-semibold flex items-center">
+                  vedi mappa <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                </button>
+              </div>
+
+              <div 
+                onClick={() => setActiveTab('map')}
+                className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex items-center justify-between cursor-pointer hover:border-slate-700 transition-all shadow-md"
+              >
+                <div>
+                  <span className="text-[10px] font-bold text-red-500 uppercase">Tratto Panoramico</span>
+                  <h4 className="text-sm font-bold text-white">Misto Guidato Vicino a Te</h4>
+                  <p className="text-xs text-slate-400 mt-0.5">Lunghezza: 12.4 km • Curvatura: Alta</p>
+                </div>
+                <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-red-500 border border-slate-700">
+                  <MapIcon className="w-4 h-4" />
+                </div>
+              </div>
+            </div>
+
           </div>
         )}
 
-        {/* MAPPA */}
+        {/* 2. MAPPA STRAVA-STYLE */}
         {activeTab === 'map' && (
           <div className="relative h-[calc(100vh-125px)] w-full overflow-hidden">
             <MapContainer center={mapCenter} zoom={mapZoom} scrollWheelZoom={true} className="h-full w-full z-0" zoomControl={false}>
@@ -577,7 +708,7 @@ export default function App() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Cerca città sulla mappa..."
+                  placeholder="Cerca località sulla mappa..."
                   className="w-full bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-2xl pl-10 pr-20 py-3 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-red-500"
                 />
                 <button type="submit" disabled={isSearching} className="absolute right-1.5 top-1.5 bottom-1.5 px-3 bg-red-600 hover:bg-red-500 rounded-xl text-[11px] font-bold text-white">
@@ -595,13 +726,13 @@ export default function App() {
           </div>
         )}
 
-        {/* GPS LIVE */}
+        {/* 3. TELEMETRIA LIVE GPS */}
         {activeTab === 'live' && (
           <div className="p-4 space-y-6 text-center py-6">
             <div className="inline-flex items-center gap-2 bg-slate-900 border border-slate-800 px-4 py-1.5 rounded-full">
               <div className={`w-2.5 h-2.5 rounded-full ${isRecording ? 'bg-red-500 animate-ping' : 'bg-slate-500'}`}></div>
               <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">
-                {isRecording ? `${currentUser.username} @ ${currentUser.activeCar}` : 'Pronto al Via'}
+                {isRecording ? `${currentUser.username} @ ${currentUser.activeCar || 'Auto'}` : 'Pronto al Via'}
               </span>
             </div>
 
@@ -618,7 +749,7 @@ export default function App() {
               </div>
               <div className="pl-2">
                 <span className="text-[10px] font-bold text-slate-400 block uppercase">Auto in Uso</span>
-                <span className="text-xs font-bold text-amber-400 truncate block mt-2">{currentUser.activeCar}</span>
+                <span className="text-xs font-bold text-amber-400 truncate block mt-2">{currentUser.activeCar || 'Nessuna'}</span>
               </div>
             </div>
 
@@ -642,16 +773,17 @@ export default function App() {
           </div>
         )}
 
-        {/* CLASSIFICA UTENTE */}
+        {/* 4. CLASSIFICA UTENTE */}
         {activeTab === 'leaderboard' && (
           <div className="p-4 space-y-4">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-amber-400" /> Tempi di {currentUser.username}
+              <Trophy className="w-5 h-5 text-amber-400" /> Classifica Personale (@{currentUser.username})
             </h2>
 
             {userLaps.length === 0 ? (
-              <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 text-center">
-                <p className="text-xs text-slate-400">Nessun tempo registrato. Avvia una sessione LIVE!</p>
+              <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 text-center space-y-1">
+                <p className="text-xs text-slate-300 font-bold">Nessun tempo registrato</p>
+                <p className="text-[11px] text-slate-500">Avvia una sessione LIVE con il GPS per registrare i tuoi tempi sul tuo database!</p>
               </div>
             ) : (
               <div className="bg-slate-900 rounded-3xl border border-slate-800 divide-y divide-slate-800 shadow-xl overflow-hidden">
@@ -664,7 +796,7 @@ export default function App() {
                           #{idx + 1}
                         </span>
                         <div>
-                          <h4 className="text-sm font-bold text-white">{currentUser.username}</h4>
+                          <h4 className="text-sm font-bold text-white">@{currentUser.username}</h4>
                           <p className="text-xs text-slate-400">{lap.userCar} • {lap.date}</p>
                         </div>
                       </div>
@@ -676,11 +808,11 @@ export default function App() {
           </div>
         )}
 
-        {/* FEED */}
+        {/* 5. FEED ATTIVITÀ PERSONALE */}
         {activeTab === 'feed' && (
           <div className="p-4 space-y-4">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <Activity className="w-5 h-5 text-red-500" /> Registro Attività di {currentUser.username}
+              <Activity className="w-5 h-5 text-red-500" /> Feed Attività Utente
             </h2>
 
             {userLaps.length === 0 ? (
@@ -692,7 +824,7 @@ export default function App() {
                 {userLaps.map((lap) => (
                   <div key={lap.id} className="bg-slate-900 p-4 rounded-3xl border border-slate-800 space-y-2">
                     <div className="flex justify-between items-start">
-                      <span className="text-xs font-bold text-white">{currentUser.username} ({lap.userCar})</span>
+                      <span className="text-xs font-bold text-white">@{currentUser.username} ({lap.userCar})</span>
                       <span className="text-[10px] text-slate-500">{lap.date}</span>
                     </div>
                     <p className="text-xs text-slate-300">Ha completato un tracciamento GPS a {lap.location}.</p>
